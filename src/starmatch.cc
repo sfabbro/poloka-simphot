@@ -144,8 +144,8 @@ void StarMatchList::RefineTransfo(const double &NSigmas)
 /* not very robust : assumes that we went through Refine just before... */
 double StarMatchList::Residual() const
 {
-  double deno = (2.*size() - transfo->Npar());
-  return (deno>0.) ? sqrt(dist2/deno) : -1; // is -1 a good idea?
+  int deno = (2.*size() - transfo->Npar());
+  return (deno>0) ? sqrt(dist2/deno) : -1; // is -1 a good idea?
 }
 
 

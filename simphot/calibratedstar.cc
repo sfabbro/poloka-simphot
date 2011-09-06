@@ -210,8 +210,8 @@ CalibratedStarList::CalibratedStarList(const string &CatalogName,
 
 
   FitsHeader geomHead(refimage->FitsName());
-  GtransfoRef wcs = WCSFromHeader(geomHead);
-  if (!wcs)
+  Gtransfo *wcs = NULL;
+  if (!WCSFromHeader(geomHead, wcs))
     {
       cout << "LightCurveFile::SimPhotFitForCalib : could not get wcs from image " << geomHead.FileName() << endl;
       exit(-1);

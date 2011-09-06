@@ -1,5 +1,4 @@
 #include <algorithm>
-#include <fstream>
 
 #include "imagesubtraction.h"
 #include "kernelfit.h"
@@ -7,9 +6,7 @@
 #include "fitsimage.h"
 #include "imageback.h"
 #include "gtransfo.h"
-#include "apersestar.h"
-#include "toadscards.h"
-#include "datacards.h"
+
 
 #ifndef M_PI
 #define     M_PI            3.14159265358979323846  /* pi */
@@ -43,9 +40,10 @@ ReducedImage *ImageSubtraction::Clone() const
   return NULL;
 }
 
-static double sqr(double x) { return x*x;}
 
+#ifdef STORAGE
 // Code to generate Delphine's plots (subtraction quality checking) , as they are called.
+
 #include "quali_box.h"
 
 // this routine creates a kind of ntuple that allows to study 
@@ -74,6 +72,11 @@ static void  quali_plots(const ReducedImage *Ref, const ReducedImage *New,
 		   &ident, imArray, fond, sigmaFond, 10, qual_log);
   qual_log.close();
 }                 
+#endif /* STORAGE */
+
+
+static double sqr(double x) { return x*x;}
+
 
 bool ImageSubtraction::MakeFits()
 {
@@ -87,7 +90,7 @@ bool ImageSubtraction::MakeFits()
       return false;
     }
   // fit the convolution kernel
-  if (solution.empty()) DoTheFit();
+  DoTheFit();
   // build the subtracted image
   FitsHeader href(Ref->FitsName());
   FitsImage subImage(fileName, href);
@@ -97,11 +100,10 @@ bool ImageSubtraction::MakeFits()
      - Important point : the same trick has to be applied to the variance computation. 
      use subblocks in the following code to get rid ASAP of temporary images
   */
+  cout << " Subtracting " << New->Name() << " - " << Ref->Name() << endl;
   double photomRatio = KernAtCenterSum();
   if (RefIsBest())
     {
-      cout << " Subtraction: " << New->Name() 
-	   << " - Kernel*" << Ref->Name() << endl;
       {
 	FitsImage worst(New->FitsName());
 	theSubtraction = worst;
@@ -117,14 +119,12 @@ bool ImageSubtraction::MakeFits()
     }
   else 
     {
-      cout << " Subtraction: " << New->Name() 
-	   << "*Kernel - " << Ref->Name() << endl;
       {
 	FitsImage best(New->FitsName());
 	ImageConvolve(best,theSubtraction);
       }
       {
-	FitsImage worst(Ref->FitsName());
+	FitsImage worst(New->FitsName());
 	theSubtraction -= worst;
       }
     }
@@ -132,6 +132,9 @@ bool ImageSubtraction::MakeFits()
   subImage.SetWriteAsFloat();
   // update Frame limits
   CommonFrame().WriteInHeader(subImage);
+  // link PSF if any
+  string worstpsfname = Worst()->ImagePsfName();
+  if (FileExists(worstpsfname)) MakeRelativeLink(worstpsfname.c_str(), ImagePsfName().c_str());
   // set some score values
   SetSeeing(LargestSeeing());
   SetBackLevel(0.0); // by construction
@@ -140,26 +143,14 @@ bool ImageSubtraction::MakeFits()
   SetSigmaBack(sigmaBack);
   double readnoise = sqrt(sqr(Worst()->ReadoutNoise())+sqr(photomRatio*Best()->ReadoutNoise()));
   SetReadoutNoise(readnoise);
-  SetUsablePart(CommonFrame());
-  SetOriginalSkyLevel(Worst()->OriginalSkyLevel() +
-		      photomRatio * Best()->OriginalSkyLevel()," sum of sky levels of the subtraction terms");
-
   /* originaly , we added some info on the origin of this image. Not sure it is useful */
-  /* it does not hurt */
-  subImage.AddOrModKey("KERNREF",Best()->Name().c_str(), " name of the seeing reference image");
-  subImage.AddOrModKey("KERNCHI2",Chi2(), " chi2/dof of the kernel fit");
-  subImage.AddOrModKey("PHORATIO",photomRatio, " photometric ratio with KERNREF"); 
+  /*
+  AddOrModKey("KERNREF",Best()->Name().c_str(), " name of the seeing reference image");
+  AddOrModKey("KERNCHI2",Chi2(), " chi2/dof of the kernel fit");
+  AddOrModKey("PHORATIO",photomRatio, " photometric ratio with KERNREF"); 
+  */
 
-  
-  string datacards=DefaultDatacards();
-  if (FileExists(datacards)) {
-    DataCards cards(datacards);
-    if (cards.HasKey("SUB_QUALI_TUPLE")) {
-      string qualfile = "qual.list";
-      qualfile = cards.SParam("SUB_QUALI_TUPLE");
-      quali_plots(Ref, New, &subImage, Dir()+"/"+qualfile);
-    }
-  }
+  //  quali_plots(Ref, New, &subImage, Dir()+"/qual.log");
 
   double zero_point = Ref->AnyZeroPoint();
   cerr << "Zero Point as taken from reference stack:" 
@@ -189,32 +180,6 @@ bool ImageSubtraction::MakeFits()
   return true;
 }
 
-static void add_model_noise(const AperSEStar *Ap, 
-			     const double& Gain,
-			     Image &Variance)
-{
-  // account for object noise using an object "model".
-  double det = Ap->gmxx * Ap->gmyy - sqr(Ap->gmxy);
-  double wxx = Ap->gmyy/det;
-  double wyy = Ap->gmxx/det;
-  double wxy = -Ap->gmxy/det;
-  double factor = Ap->flux/Gain * (2*M_PI*sqrt(det));
-  double hwidth = 3*Ap->A() + 2;
-  int xstart = max(0, int(floor(Ap->x - hwidth)));
-  int ystart = max(0, int(floor(Ap->y - hwidth)));
-  int xend = min(int(ceil(Ap->x + hwidth)), Variance.Nx());
-  int yend = min(int(ceil(Ap->y + hwidth)), Variance.Ny());
-
-  for (int j=ystart; j<yend; ++j) {
-    double y = j - Ap->y;
-    for (int i=xstart; i<xend; ++i) {
-      double x = i - Ap->x;
-      Variance(i,j) += factor * exp(-0.5*(wxx*x*x + wyy*y*y + 2*wxy*x*y));
-    }
-  }
-
-}
-
 #include "convolution.h"
 
 
@@ -232,7 +197,6 @@ static void add_model_noise(const AperSEStar *Ap,
      - done. easy isn't it?
   */
 
-
 bool ImageSubtraction::MakeWeight()
 {
   string fileName = FitsWeightName();
@@ -240,21 +204,6 @@ bool ImageSubtraction::MakeWeight()
   if (!MakeFits()) return false; // Hard way to get the convolution kernel.
 
   cout << " making WeightImage  " << fileName << endl;
-  string datacards=DefaultDatacards();
-  int subVarianceType = 0;
-  int subMaskDilate = 0;
-  double subMaskSig2Noise = -1;
-    
-  if (FileExists(datacards)) {
-    DataCards cards(datacards);
-    if (cards.HasKey("SUB_VARIANCE_TYPE"))
-      subVarianceType = cards.IParam("SUB_VARIANCE_TYPE");
-    if (cards.HasKey("SUB_MASK_DILATE"))
-      subMaskDilate = cards.IParam("SUB_MASK_DILATE");
-    if (cards.HasKey("SUB_MASK_SIG2NOISE"))
-      subMaskSig2Noise = cards.DParam("SUB_MASK_SIG2NOISE");
-  }
-    
   FitsHeader imageHeader(FitsName()); 
 
   FitsImage  weights(FitsWeightName(), imageHeader);
@@ -276,15 +225,6 @@ bool ImageSubtraction::MakeWeight()
 	   << ", cannot get satur from " << Best()->Name() << endl;
     }
 
-  if (subMaskSig2Noise > 0 && RefIsBest()) {
-    FitsImage best(Best()->FitsName());
-    cout << " Masking pixels with S/N > " << subMaskSig2Noise << " on " << Best()->Name() << endl;
-    Pixel *pim = best.begin();
-    Pixel skybest = Best()->BackLevel();
-    for (Pixel *p=weightImage.begin() ; pim < best.end() ; ++pim, ++p)
-      if ( (*pim-skybest) * sqrt(*p) >= subMaskSig2Noise) *p = 0;
-  }
-
   /* add a small constant to weights so that variances of 
      zero weight pixels remain finite */
   Pixel minVal,maxVal;
@@ -293,38 +233,11 @@ bool ImageSubtraction::MakeWeight()
   weights += eps;
 
   // now go to variances
-  const Pixel *pend = weights.end();
+  Pixel *pend = weights.end();
   for (Pixel *p = weights.begin(); p < pend; ++p) (*p) = 1./(*p);
 
-  /*
-    Subtraction variance type:
-     0: no extra variance var(sub) = sky(best) * k^2 + sky(worst) default
-     1: var(sub) = k^2 * (sky(best) + best) + sky(worst) + worst
-        includes Poisson noise from objects as "data": bias photometry but useful when many bright stars
-     2: var(sub) = k^2 * (sky(best) + model(best)) + sky(worst) + model(worst)
-        includes poisson noise from objects as Gaussian model. Might be less biased than 
-	previous, but usually very wrong for crowded fields and sextractor based catalogs.
-  */
-
-  double factfmax = 10.;
-  if (subVarianceType == 1) {
-    cout << " ImageSubtraction: weighting with data as Poisson noise\n";
-    double fact = 1./Best()->Gain();
-    FitsImage data(Best()->FitsName());
-    for (Pixel *pd=data.begin(), *p=weights.begin(); p < pend; ++pd, ++p)
-      *p += *pd * fact;
-  } else if (subVarianceType == 2) {
-    cout << " ImageSubtraction: weighting with Gaussian models as Poisson noise\n";
-    double gain = Best()->Gain();
-    double minfmax = factfmax * sqr(Best()->SigmaBack());
-    AperSEStarList bestlist(Best()->AperCatalogName());
-    for (AperSEStarCIterator it=bestlist.begin(); it != bestlist.end(); ++it)
-      if ((*it)->Fluxmax() > minfmax) add_model_noise(*it, gain, weights);
-  } else {
-    cout << " ImageSubtraction: no Poisson noise from objects\n";
-  }
-
   /* convolve with squared image kernel */
+  cout << " convolving variance " << endl;
   {
     Image weightsCopy(weights);
     VarianceConvolve(weightsCopy, weights);
@@ -345,60 +258,16 @@ bool ImageSubtraction::MakeWeight()
 	   << ", cannot get satur from " << Worst()->Name() << endl;
     }
 
-  if (subMaskSig2Noise > 0 && !RefIsBest()) {
-    FitsImage worst(Worst()->FitsName());
-    cout << " Masking pixels with S/N > " <<  subMaskSig2Noise << " on " << Worst()->Name() << endl;
-    Pixel *pim = worst.begin();
-    Pixel skyworst = Worst()->BackLevel();
-    for (Pixel *p=weightImage.begin() ; pim < worst.end() ; ++pim, ++p)
-      if ( (*pim-skyworst) * sqrt(*p) >= subMaskSig2Noise) *p = 0;
-  }
-
-  /* add a small constant to weights so that variances of 
-     worse weights zero weight pixels remain finite */
-  weights_worst.MinMaxValue(&minVal, &maxVal);
-  double epsw = maxVal * 1e-10;
-  weights_worst += epsw;
-  // now go to variances
-  const Pixel *pwend = weights_worst.end();
-  Pixel *pw = weights_worst.begin();
-  for ( ; pw < pwend; ++pw) *pw = 1./(*pw);
-
-  if (subVarianceType == 1) {
-    double fact = 1./Worst()->Gain();
-    FitsImage data(Worst()->FitsName());
-    pw = weights_worst.begin();
-    for (Pixel *pd=data.begin(); pw < pwend; ++pw, ++pd)
-      *pw += *pd * fact;
-  } else if (subVarianceType == 2) {
-    double gain = Worst()->Gain();
-    double minfmax = factfmax * sqr(Worst()->SigmaBack());
-    AperSEStarList worstlist(Worst()->AperCatalogName());
-    for (AperSEStarCIterator it=worstlist.begin(); it != worstlist.end(); ++it)
-      if ((*it)->Fluxmax() > minfmax)
-	add_model_noise(*it, gain, weights_worst);
-  }
-
-  {
-    pw = weights_worst.begin();
-    Pixel threshold = eps*100; // value under which we go to zero.
-    cout << " threshold under which weight = 0 " << threshold << endl;
-    pend = weights.end();
-    Image mask(weights.Nx(), weights.Ny());
-    Pixel *pm = mask.begin();
-    for (Pixel *p = weights.begin(); p < pend; ++p, ++pw, ++pm) {
-      *p = 1. / (*pw + *p);
-      if (*p < threshold) { *p = 0; *pm = 1; }
-      else *pm = 0;
+  Pixel threshold = eps*100; // value under which we go to zero.
+  cout << " threshold under which weight = 0 " << threshold << endl;
+  pend = weights.end();
+  Pixel *pworst = weights_worst.begin();
+  for (Pixel *p = weights.begin(); p < pend; ++p, ++pworst)
+    { // the following expression works for *pworst == 0
+      (*p) = (*pworst)/((*p)*(*pworst)+1.);
+      if (*p < threshold) { (*p) = 0;}
     }
 
-    if (subMaskDilate>0) {
-      cout << " Dilating bad pixels with " << subMaskDilate << " pixels\n";
-      dilate_binary_image(mask, subMaskDilate);
-      weights *= (1 - mask);
-    }
-
-  }
   // weightImage is now an actual weight.
 
   /* account for the fact that the subtraction is by convention
@@ -486,37 +355,6 @@ bool ImageSubtraction::MaskNullWeight()
 }
 
 
-bool ImageSubtraction::MakeCosmic()
-{
-  if (FileExists(FitsCosmicName())) return true;
-  MakeWeight();
-
-  FitsImage im(FitsName());
-  if (!im.IsValid()) {
-    cerr << " ImageSubtraction::MakeCosmic: missing image";
-    return false;
-  }
-
-  FitsImage weight(FitsWeightName(), RW);
-  if (!weight.IsValid()) {
-    cerr << " ImageSubtraction::MakeCosmic: missing weight";
-    return false;
-  }
-  im *= weight;
-  Pixel mean, sigma;
-  im.SkyLevel(&mean, &sigma);
-  double seeing = Seeing();
-  FitsHeader &head = im;
-  FitsImage cosmic(FitsCosmicName(), head);
-  Image &CosmicImage = cosmic;
-  im.Cosmics(sigma, mean, seeing, CosmicImage);
-  cosmic.AddOrModKey("BITPIX",8);    
-  // update weights
-  weight *= (1.- cosmic);
-  weight.AddOrModKey("COSMPIXS", true, "This weight accounts for (identified) cosmics");
-  return true;
-}
-
 
 string ImageSubtraction::CandName() const
 {
@@ -542,7 +380,6 @@ string ImageSubtraction::CandCutScanName() const
 {
   return Dir()+"/cand_cut_scan.list" ;
 }
-
 
 
 #include "toadscards.h"

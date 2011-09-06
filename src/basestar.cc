@@ -94,12 +94,7 @@ void BaseStar::WriteHeader(ostream & stream) const
 
 void BaseStar::writen(ostream &s) const 
 {
-  // do we really want to abort a whole processing because of a crippled star?
-  //assert(vx>0 && vy>0 && sq(vxy)<vx*vy);
-  if (vx < 0 || vy < 0 || sq(vxy) > vx*vy) {
-    cerr << " warning: bad BaseStar: " << *this << endl;
-    return;
-  }
+  assert(vx>0 && vy>0 && sq(vxy)<vx*vy);
   /* write (sigx,sigy,rho) rather than (vx,vy,vxy). 
      This limits shortcomings of truncation, and is more useful 
      when reading or plotting.

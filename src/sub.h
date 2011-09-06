@@ -61,7 +61,6 @@ protected :
   bool overwrite;
   bool onlyDet;
   bool onlyOneSub;
-  bool convolveRef;
   bool detectOnAllSub;
   ReducedImageRef RefStack;
   ReducedImageRef Original_New;

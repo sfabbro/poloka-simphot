@@ -39,7 +39,7 @@ typedef ImageList<SimFitVignet>::iterator SimFitVignetIterator;
 typedef ImageList<SimFitVignet>::const_iterator SimFitVignetCIterator;
 
 //! Simultaneous fitting of Vignets
-class SimFit : public ImageList<SimFitVignet> {
+class SimFit : public vector< CountedRef<SimFitVignet> > {
 
 private:
   // flags

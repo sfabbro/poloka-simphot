@@ -28,9 +28,10 @@ public :
 	ri = ReducedImageRef((ReducedImage *)NULL);
 	return;
       }
+    Gtransfo *wcs;
     FitsHeader head(ri->FitsName());
-    GtransfoRef wcs = WCSFromHeader(head);
-    Gtransfo *pix2RaDec = dynamic_cast<TanPix2RaDec*>((Gtransfo*)wcs);
+    WCSFromHeader(head,wcs);
+    Gtransfo *pix2RaDec = dynamic_cast<TanPix2RaDec*>(wcs);
     if (!pix2RaDec)
       {
 	std::cerr << " no tan wcs in image " << Name() 
@@ -45,6 +46,7 @@ public :
       }	
     Gtransfo* pix2RefPix  = GtransfoCompose(&RefRaDec2Pix, pix2RaDec);
     whereInRef = ApplyTransfo(ri->UsablePart(),*pix2RefPix, LargeFrame);
+    delete wcs;
     keepIt = true;
   }
 
@@ -69,8 +71,8 @@ public :
     raDec2RefPix = NULL;
     refName = Ref.Name();
     FitsHeader head(Ref.FitsName());
-    GtransfoRef wcs = WCSFromHeader(head);
-    if (!wcs)
+    Gtransfo *wcs;
+    if (!WCSFromHeader(head,wcs))
       {
 	std::cerr << " no WCS in " << refName << " giving up " << std::endl;
 	return;
@@ -78,6 +80,7 @@ public :
     wholeRefFrame = Frame(head);
     raDec2RefPix = wcs->InverseTransfo(0.1 /*precision in pixels*/, 
 				       wholeRefFrame);
+    delete wcs;
   }
 
   const Frame &WholeRefFrame() const { return wholeRefFrame;}

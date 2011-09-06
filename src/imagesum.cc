@@ -18,24 +18,6 @@
 
 static double sqr(const double &a) { return a*a;}
 
-static bool IsAlignedWith(const ReducedImage& One, const ReducedImage& Two) {
-  FitsHeader h1(One.FitsName());
-  if (h1.HasKey("GEOREF")) {
-    string r1 = h1.KeyVal("GEOREF");
-    if (r1 == Two.Name())
-      return true;
-    FitsHeader h2(Two.FitsName());
-    if (h2.HasKey("GEOREF")) {
-      string r2 = h2.KeyVal("GEOREF");
-      return (r1 == r2);
-    }
-  }
-  return false;
-}
-
-static bool AreAligned(const ReducedImage& One, const ReducedImage& Two) {
-  return IsAlignedWith(One,Two) || IsAlignedWith(Two,One);
-}
 
 Component::Component(ReducedImage *RI, const double &PhotomRatio, 
 		     const WeightingMethod weightingMethod) 
@@ -183,6 +165,7 @@ void DatStack::Print(ostream& s) const
 }
 
 
+
 /***************** ImageSum ********************/
 
 ImageSum::ImageSum(const string &AName, ReducedImageList &Images,
@@ -208,12 +191,9 @@ ImageSum::ImageSum(const string &AName, ReducedImageList &Images,
   double total_weight = 0;
 
   // devise photometric reference
-  const ReducedImage *photomReference = PhotomReference;
-  GtransfoRef transfo2PhoRef;
-  if (!photomReference) {
-    photomReference = Images.front();
-    transfo2PhoRef = new GtransfoIdentity();
-  }
+  ReducedImage *firstImage = Images.front();
+  const ReducedImage *photomReference = (PhotomReference) ? PhotomReference :
+    firstImage;
   photomReferenceName = photomReference->Name();
   zero_point_ref = photomReference->AnyZeroPoint();
   cout << " using " << photomReferenceName << " as photom reference " << endl;
@@ -222,26 +202,21 @@ ImageSum::ImageSum(const string &AName, ReducedImageList &Images,
     {
       ReducedImage *ri = *i;
       bool ok = true ;
-      if (! FileExists(ri->FitsName()))
+      if (! FileExists(ri->FitsName())) 
 	{
-	  cout << " Building " <<ri->FitsName() << endl ;
 	  ok =  ri->MakeFits(); 
+	  cerr << " Building " <<ri->FitsName() << endl ;
 	}
       if (!ok) continue ;
-      double phRatio=1;
-      // no need of catalogues when summing without photometric scaling
-      if (weightingMethod != NoGlobalWeighting && weightingMethod != NoWeightsAtAll) {	
-	if (!ri->HasCatalog()) {
-	  cout << " Building " << ri->CatalogName() << endl ;
-	  ok =  ri->MakeCatalog();
+      if ( ! ri->HasCatalog() )
+	{
+	  ok =  ri->MakeCatalog(); 
+	  cerr << " Building " << ri->CatalogName() << endl ;
 	}
-	if (!transfo2PhoRef && AreAligned(*ri, *photomReference))
-	  transfo2PhoRef = new GtransfoIdentity();
-	double err;
-	ok = PhotomRatio(*ri, *photomReference, phRatio, err, transfo2PhoRef);
-      }
-      if (!ok) continue;
-      Component current(ri, phRatio, weightingMethod);
+      if (!ok) continue ;
+      double err;
+      double phRatio = QuickPhotomRatio(*ri,*photomReference,err);
+      Component current(ri,phRatio, weightingMethod);
       current.dump();
       components.push_back(current);
       //components.push_back(Component(ri,phRatio, weightingMethod));
@@ -504,14 +479,19 @@ bool ImageSum::MakeFits()
   if (FileExists(fileName)) return true;
   if (components.size() == 1)
     {
-      string name = components.front().Ri->FitsName();
-      if (!FileExists(name)) components.front().Ri->MakeFits();
-      MakeRelativeLink(components.front().Ri->FitsName().c_str(), FitsName().c_str());
-      name = components.front().Ri->FitsWeightName();
-      if (!FileExists(name)) components.front().Ri->MakeWeight();
-      MakeRelativeLink(components.front().Ri->FitsWeightName().c_str(), FitsWeightName().c_str());
+      ReducedImage &input = *(components[0].Ri);	
+      {
+	FitsImage input_image(input.FitsName());
+	FitsImage(FitsName(), input_image, input_image);
+      }
+      if (FileExists(input.FitsWeightName()))
+	{
+	  FitsImage input_weight(input.FitsWeightName());
+	  FitsImage(FitsWeightName(), input_weight, input_weight);
+	}
       return true;
     }
+		  
   cout <<" entering image stacking for " << Name() << endl;
   clock_t tstart = clock();
   FitsParallelSlices imageSlices(20);
@@ -566,12 +546,18 @@ bool ImageSum::MakeFits()
   if (averageWeightSum) for (unsigned k=0; k < components.size(); ++k)
       components[k].averageWeight /= averageWeightSum;
 
-  Image stackImage(components[0].Ri->XSize(), components[0].Ri->YSize());
-  Image weightImage(stackImage);
+  FitsHeader head(components[0].Ri->FitsName());
+  FitsImage stack(fileName, head);
+  stack.SetWriteAsFloat();
+  FitsImage weightImage(FitsWeightName(), head);
+
+  // to make sure that 0 remain 0 after FITS write/read in 16 bits format:
+  weightImage.PreserveZeros(); 
+
 
   int numberOfImages = components.size();
-  int nx = stackImage.Nx();
-  int ny = stackImage.Ny();
+  int nx = stack.Nx();
+  int ny = stack.Ny();
 
   // set up done : loop on pixels
   cout << " Start looping on pixels " << endl;
@@ -638,7 +624,7 @@ bool ImageSum::MakeFits()
 		  normval_weighted_median(pixValues, npix, 
 					  stackVal, weightVal);
 		}
-	      stackImage(i, j_image) = stackVal;
+	      stack(i, j_image) = stackVal;
 	      weightImage(i, j_image) = weightVal;
 	    }
 	}
@@ -652,17 +638,12 @@ bool ImageSum::MakeFits()
   clock_t tend = clock();
   cout << " CPU for stacking " 
        << float(tend-tstart)/float(CLOCKS_PER_SEC) << endl;
-  {
-    FitsHeader headRef(components[0].Ri->FitsName());
-    FitsImage stackFits(fileName, headRef, stackImage);
-    stackFits.SetWriteAsFloat();
-    FitsImage weightFits(FitsWeightName(), headRef, weightImage);
-    // to make sure that 0 remain 0 after FITS write/read in 16 bits format:
-    weightFits.PreserveZeros(); 
-  }
+
+  stack.Write();
   FitsHeaderFill();
   cout << Name() << " Image/Weight stat : " 
-       << ImageAndWeightError(stackImage, weightImage) << endl;
+       << ImageAndWeightError(stack, weightImage) << endl;
+
   return true;
 }
 
@@ -754,12 +735,12 @@ void ImageSum::FitsHeaderFill()
   SetBackLevel(backLevel);
   double sigmaBack = sqrt(backVar);
   SetSigmaBack(sigmaBack);
-  float average, sigma;
   {
     FitsImage image(FitsName());
+    float average,sigma;
     image.SkyLevel(&average,&sigma);
+    SetNoisePow(sigma);
   }
-  SetNoisePow(sigma);
   SetJulianDate(julianDate);
   SetAirmass(airmass);
   SetSaturation(saturation);
@@ -769,6 +750,7 @@ void ImageSum::FitsHeaderFill()
 
   SetOriginalSkyLevel(originalskylevel);
   flatnoise = sqrt(flatnoise)/originalskylevel;
+  cerr << "Flatnoise " << flatnoise << endl ;
   SetFlatFieldNoise(flatnoise);
 
   SetOriginalSaturation(originalsatur);
@@ -781,15 +763,6 @@ void ImageSum::FitsHeaderFill()
 		   " ImageSum param ");
   head.AddOrModKey("WEIGHMET", name_of_weightingMethod(weightingMethod), 
 		   " ImageSum param ");
-
-  // final frame can be large
-  if (head.HasKey("PKAUNION")) {
-    head.RmKey("XNEWBEG");
-    head.RmKey("YNEWBEG");
-    head.RmKey("XNEWEND");
-    head.RmKey("YNEWEND");
-  }
-
    if (zero_point_ref>0)
     {
       // par construction, sum alignee sur ref photom
@@ -843,34 +816,6 @@ bool ImageSum::MakeCatalog()
       stl.write(CatalogName());
     }
   return(ok); 
-}  
-
-bool ImageSum::MakeAperCat()
-{
-  if (FileExists(AperCatalogName())) return true;
-  if (components.size() == 1)
-    {      
-      string name = components.front().Ri->AperCatalogName();
-      if (!FileExists(name)) components.front().Ri->MakeAperCat();
-      MakeRelativeLink(components.front().Ri->AperCatalogName().c_str(),
-		       AperCatalogName().c_str());
-      return true;
-    }  
-  return ReducedImage::MakeAperCat();
-}  
-
-bool ImageSum::MakeStarCat()
-{
-  if (FileExists(StarCatalogName())) return true;
-  if (components.size() == 1)
-    {      
-      string name = components.front().Ri->StarCatalogName();
-      if (!FileExists(name)) components.front().Ri->MakeStarCat();
-      MakeRelativeLink(components.front().Ri->StarCatalogName().c_str(),
-		       StarCatalogName().c_str());
-      return true;
-    }
-  return ReducedImage::MakeStarCat();
 }  
 
 bool ImageSum::MakeDead()

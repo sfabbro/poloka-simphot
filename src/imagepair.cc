@@ -6,8 +6,8 @@
 
 ImagePair::ImagePair(const ReducedImageRef &Best, const ReducedImageRef &Worst) : best(Best), worst(Worst)
 {
-  bestSeeing = best->GFSeeing();
-  worstSeeing = worst->GFSeeing();
+  bestSeeing = best->Seeing();
+  worstSeeing = worst->Seeing();
   bestGain = best->Gain();
   worstGain = worst->Gain();
   commonFrame = best->UsablePart()*worst->UsablePart();

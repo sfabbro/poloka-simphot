@@ -8,8 +8,6 @@ using namespace std;
 class ReducedImage;
 class ImageSum;
 class TransformedImage;
-class ImageSubtraction;
-class SubImage;
 
 /*! \file 
     \brief utilities around all derived classes ot ReducedImage.
@@ -25,13 +23,5 @@ TransformedImage *IsTransformedImage(ReducedImage *RImage);
 //! returns NULL if the argument is not an ImageSum.
 const ImageSum *IsImageSum(const ReducedImage *RImage);
 ImageSum *IsImageSum(ReducedImage *RImage);
-
-//! returns NULL if the argument is not an ImageSum.
-const ImageSubtraction *IsImageSubtraction(const ReducedImage *RImage);
-ImageSubtraction *IsImageSubtraction(ReducedImage *RImage);
-
-//! returns NULL if the argument is not an ImageSum.
-const SubImage *IsSubImage(const ReducedImage *RImage);
-SubImage *IsSubImage(ReducedImage *RImage);
 
 #endif /*  ALLREDUCEDIMAGE__H */

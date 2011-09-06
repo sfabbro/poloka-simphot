@@ -62,8 +62,8 @@ int main(int nargs, char **args)
 	}
       int shoot = head.KeyVal("EXPNUM"); // specific to Megacam
       int chip = head.KeyVal("TOADCHIP");
-      GtransfoRef wcs = WCSFromHeader(head);
-      if (transformCoords && !wcs)
+      Gtransfo *wcs = NULL;
+      if (transformCoords && !WCSFromHeader(head, wcs))
 	{
 	  cerr << " do not find the expected WCS in " << head.FileName() << endl;
 	  continue;

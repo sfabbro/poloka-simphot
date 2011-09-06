@@ -726,7 +726,8 @@ int MultiMagSEStarList::write(const std::string &FileName) const
 void 
 MultiMagSEStarList::ComputeAlphaDelta(const FitsHeader & head)
 {
-  GtransfoRef wcs = WCSFromHeader(head);
+  Gtransfo *wcs;
+  WCSFromHeader(head, wcs);
   for (MultiMagSEStarIterator i = this->begin(); i != this->end(); ++i)
     {
       MultiMagSEStar *star = *i ;

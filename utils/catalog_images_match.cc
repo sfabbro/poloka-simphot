@@ -82,10 +82,10 @@ int main(int nargs, char **args)
 	  continue;
 	}
       FitsHeader head(fitsName);
-      GtransfoRef wcs = WCSFromHeader(head);
-	if (!wcs)
+      Gtransfo *wcs;
+      if (!WCSFromHeader(head, wcs))
 	{
-	  cerr << " no wcs fo image " << im.Name() << endl;
+	  cout << " no wcs fo image " << im.Name() << endl;
 	  continue;
 	}
       Frame imageFrame(head);
@@ -94,6 +94,7 @@ int main(int nargs, char **args)
       DicStarList inImage;
       catalog.ExtractInFrame(inImage,raDecImageFrame);
       cout << " ***** " << im.Name() << " contains " << inImage.size() << " objects " << endl;
+      delete wcs;
     }
 
 }

@@ -29,11 +29,6 @@ class SubImage : public ReducedImage {
 	   const string &LargeImageName, 
 	   const Frame &SubFrame);
 
-  SubImage(const string& Name);
-  SubImage(const string &Name, 
-	   const string &LargeImageName,
-	   const string &SmallImageName,
-	   int ExtraMargin=0);
 
   virtual const string  TypeName() const { return "SubImage";}
   //!
@@ -50,7 +45,6 @@ class SubImage : public ReducedImage {
   bool MakeDead();
   //! 
   bool MakeCatalog();
-  bool MakeAperCat();
   //! 
   ReducedImage *Clone() const { return new SubImage(*this);};
 

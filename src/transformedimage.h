@@ -166,8 +166,7 @@ private:
 
   virtual bool MakeFits() ;
   virtual bool MakeCatalog();
-  virtual bool MakeAperCat();
-  virtual bool MakeStarCat();
+  bool MakeAperCat();
   virtual bool MakeDead();
   virtual bool MakeSatur();
   virtual bool MakeCosmic();
@@ -200,5 +199,7 @@ string TransformedName(const string &ToTransform, const string &Ref);
    DoCatalog|DoDead to get catalog and dead frame on top of the default image itself. */
 
 int ImagesAlign(const ReducedImageList &ToAlign, const ReducedImage &Reference, ReducedImageList &Aligned, const int ToDo,bool use_wcs=false,float min_match_ratio=0);
+
+void MakeUnionRef(const ReducedImageList& ToAlign, const ReducedImage& Reference, const string& unionName);
 
 #endif /*  TRANSFORMEDIMAGE__H */

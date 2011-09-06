@@ -14,8 +14,6 @@ class StarMatchList;
 class ImagePair;
 class Image;
 
-string KernelFitFile(const ImagePair& ImPair);
-
 /*! \class KernelFit
     \brief Kernel fitting by least squares. 
 
@@ -116,14 +114,11 @@ public :
   XYPower SepBackVar;
 
   int HStampSize;
-  int KernelBasis;
+
   int MaxStamps;
   bool UniformPhotomRatio;
   bool OrthogonalBasis;
   bool SubtractNoise;
-  double MaxSatur, MinSigToNoise, MinB, MaxDist;
-  bool WriteStarList, WriteFitResid, WriteKernel;
-  bool KernelFiltering;
 
   OptParams(); /* default values */
   void OptimizeSizes(double BestSeeing, double WorstSeeing);

@@ -151,11 +151,12 @@ bool WCSLinTransfoFromHeader(const string &FitsImageName, GtransfoLin &Pix2RaDec
 
 bool WCSLinTransfoFromHeader(const FitsHeader& Header, GtransfoLin &Pix2RaDec)
 {
-   GtransfoRef wcs = WCSFromHeader(Header);
-   if (!wcs) return false;
+   Gtransfo *wcs;
+   if (!WCSFromHeader(Header,wcs)) return false;
    Frame frame(Header);
    // scale the derivation step with the size of the frame. Not critical hopefully
    Pix2RaDec = wcs->LinearApproximation(frame.Center(), sqrt(frame.Area())/3.);
+   delete wcs;
    return true;
 }
 
@@ -436,14 +437,12 @@ static GtransfoPoly ReadWCSCorrection(const FitsHeader &Head,
       /* remove PV, DJ or DV at the beginning of key names (they are
 	 present by construction, and absent from the "assoc" tables)
       */
-      //const char *fitsName = key.KeyName().c_str()+tagLen;
-      string fitsName = key.KeyName().substr(tagLen);
+      const char *fitsName = key.KeyName().c_str()+tagLen;
       double val = key; 
       size_t j;
       for (j=0; assoc[j].coeffName ; ++j)
 	{
-	  //if (strcmp(assoc[j].fitsName,fitsName) == 0) break;
-	  if (fitsName == assoc[j].fitsName) break;
+	  if (strcmp(assoc[j].fitsName,fitsName) == 0) break;
 	}
       if (!assoc[j].coeffName) // reached the end
 	{
@@ -565,12 +564,13 @@ static bool WCS3TransfoFromHeader(const FitsHeader& Header,
   (if any). The result is exact if the image was matched using matchusno.
   For WCS encoded by other tools (such as SWarp), the result is now also exact,
   using the TanPix2RaDec Gtransfo */
-GtransfoRef WCSFromHeader(const FitsHeader &Head)
+bool WCSFromHeader(const FitsHeader &Head, Gtransfo* &Pix2RaDec)
 {
-  GtransfoRef pix2RaDec;
+  Pix2RaDec = NULL;
   if (!Head.IsValid() || !HasLinWCS(Head))
     {
       cerr << " do not find the expected WCS in " << Head.FileName() << endl;
+      return false;
     }
   /* there was a bug in CopyWCS : the cubic part of the WCS was not
      deleted, when copying from a header that did not have any cubic 
@@ -582,32 +582,34 @@ GtransfoRef WCSFromHeader(const FitsHeader &Head)
      of possible  present or future bugs .
    */
      
-  else if ( (Head.HasKey("CDELT1") && !Head.HasKey("CD1_1")) 
+  if ( (Head.HasKey("CDELT1") && !Head.HasKey("CD1_1")) 
        || Head.HasKey("WCSVERS") 
        ||!HasWCS3Correction(Head))
     {
        TanPix2RaDec wcs;
        bool ok = TanWCSFromHeader(Head, wcs);
-       pix2RaDec = (ok)? wcs.Clone() : NULL;
+       Pix2RaDec = (ok)? wcs.Clone() : NULL;
+       return ok;
     }
-  else {
-    GtransfoLin linPix2RaDec;
-    if (!OldLinWCSFromHeader(Head,linPix2RaDec)) return pix2RaDec;
-    GtransfoPoly cubCorr(3);
-    if (WCS3TransfoFromHeader(Head, cubCorr, /*warn = */ false))
-      {
-	pix2RaDec = GtransfoCompose(&linPix2RaDec, &cubCorr);
-      }
-    else 
-      pix2RaDec = new GtransfoLin(linPix2RaDec);
-  }
-  return pix2RaDec;
+  else
+    {
+      GtransfoLin linPix2RaDec;
+      if (!OldLinWCSFromHeader(Head,linPix2RaDec)) return false;
+      GtransfoPoly cubCorr(3);
+      if (WCS3TransfoFromHeader(Head, cubCorr, /*warn = */ false))
+	{
+	  Pix2RaDec = GtransfoCompose(&linPix2RaDec, &cubCorr);
+	}
+      else Pix2RaDec = new GtransfoLin(linPix2RaDec);
+      return true;
+    }
+  return true;
 }
 
-GtransfoRef WCSFromHeader(const string &FitsName)
+bool WCSFromHeader(const string &FitsName, Gtransfo* &Pix2RaDec)
 {
   FitsHeader head(FitsName);
-  return WCSFromHeader(head);
+  return WCSFromHeader(head,Pix2RaDec);
 }
 
 
@@ -707,7 +709,8 @@ void GetPixelSize(const FitsHeader& Head, double &SizeX, double &SizeY)
       SizeY = double(Head.KeyVal("CDELT2")) * 3600;
       return;
     }
-  GtransfoRef Pixtodeg = WCSFromHeader(Head);
+  Gtransfo *Pixtodeg;
+  WCSFromHeader(Head, Pixtodeg);
   double nx = Head.KeyVal("NAXIS1");
   double ny = Head.KeyVal("NAXIS2");
   double ra0,dec0,ra1,dec1,ra2,dec2,ra3,dec3;
@@ -719,14 +722,16 @@ void GetPixelSize(const FitsHeader& Head, double &SizeX, double &SizeY)
   double cosdec = cos(M_PI*dec/180);
   SizeX = sqrt( sqr((ra1-ra0)*cosdec) + sqr(dec1-dec0) )*3600./nx;
   SizeY = sqrt( sqr((ra3-ra2)*cosdec) + sqr(dec3-dec2) )*3600./ny;
+  delete Pixtodeg;
 }
 
 double Arcmin2Area(const Frame &aFrame,const FitsHeader &Header)
 {
-  GtransfoRef pix2radec = WCSFromHeader(Header);
-  if (pix2radec)
+  Gtransfo* pix2radec;
+  if (WCSFromHeader(Header, pix2radec))
     {
       Frame degframe = ApplyTransfo(aFrame,*pix2radec);
+      delete pix2radec;
       double ra,dec;
       RaDecFromWCS(Header,ra,dec);
       double cosdec = cos(M_PI*dec/180);
@@ -735,18 +740,17 @@ double Arcmin2Area(const Frame &aFrame,const FitsHeader &Header)
   return aFrame.Area()*sqr(PixelSize(Header))/3600.;  
 }
 
-bool RaDecFromWCS(const FitsHeader &Header, double &Ra, double &Dec)
+void RaDecFromWCS(const FitsHeader &Header, double &Ra, double &Dec)
 {
-  GtransfoRef pix2RaDec = WCSFromHeader(Header);
-  if (pix2RaDec)
+  Gtransfo *pix2RaDec = 0;
+  if (WCSFromHeader(Header, pix2RaDec))
     {
       double xc = double(Header.KeyVal("NAXIS1"))/2.;
       double yc = double(Header.KeyVal("NAXIS2"))/2.;
       pix2RaDec->apply(xc,yc,Ra,Dec);
-      return true;
+      delete pix2RaDec;
     }
-  else 
-    return false;
+   
 }
 
 double Arcmin2Area(const FitsHeader &Header)
@@ -900,12 +904,13 @@ bool HasLinWCS(const FitsHeader &Header)
 
 bool UpdateRaDec(FitsHeader &Header)
 {
-  GtransfoRef pix2RaDec = WCSFromHeader(Header);
-  if (!pix2RaDec) return false;
+  Gtransfo *pix2RaDec;
+  if (!WCSFromHeader(Header, pix2RaDec)) return false;
   Frame frame(Header);
   Point middleRaDec = pix2RaDec->apply(frame.Center());
   Header.AddOrModKey("TOADRASC",RaDegToString(middleRaDec.x).c_str(),"Updated RA from WCS and usable part");
   Header.AddOrModKey("TOADDECL",DecDegToString(middleRaDec.y).c_str(),"Updated DEC from WCS and usable part");
+  delete pix2RaDec;
   return true;
 }
 
@@ -1003,10 +1008,9 @@ bool GuessLinWCS(const FitsHeader &Header, TanPix2RaDec &Guess)
   
   cout  << " trying default GuessLinWCS" << endl;
   
-  // the tel/inst specific procedure failed. try the default one ...  
-  bool ok = false;
-  if (HasLinWCS(Header)) ok = TanLinWCSFromHeader(Header,Guess);
-  if (ok) return true;
+  // the tel/inst specific procedure failed. try the default one ...
+  
+  if (HasLinWCS(Header)) return TanLinWCSFromHeader(Header,Guess);
   cout << " failed. now trying simple shift\n";
   return ComputeLinWCS(Header, Header.ImageCenter(), GtransfoIdentity(), Guess);  
 }

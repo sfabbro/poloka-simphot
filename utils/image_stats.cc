@@ -8,8 +8,7 @@ int main(int argc,char **args)
 {
   if (argc <=1)
     {
-      cout << " image_stats <fitsfile(s)>\n"
-	   << " Computes: mean, r.m.s., expected r.m.s., min and max values\n";
+      cout << " image_stats <fitsfile(s)> " << endl;
       exit(-1);
     }
   size_t nchar = 10;
@@ -21,8 +20,8 @@ int main(int argc,char **args)
        << setw(9) << "MEAN"
        << setw(7) << "SIG" 
        << setw(7) << "STH" 
-       << setw(9) << "MIN" 
-       << setw(9) << "MAX" 
+       << setw(7) << "STHG1" 
+       << setw(7) << "STHG" 
        << resetiosflags(ios::right)
        << endl << endl;
 
@@ -37,20 +36,25 @@ int main(int argc,char **args)
 	  cout << " invalid file "  << endl;
 	  continue;
 	}
-      Pixel mean,sigma,minv,maxv;
+      Pixel mean,sigma;
       image.SkyLevel(&mean, &sigma);
-      image.MinMaxValue(&minv, &maxv);
 
       float gain = image.KeyVal("TOADGAIN");
+      float oldgain = image.KeyVal("GAIN");
+      if (oldgain==0) oldgain = image.KeyVal("OLDGAIN");
+
       float rdnoise = image.KeyVal("TOADRDON");
-      float sigth = sqrt(mean*gain + rdnoise*rdnoise) / gain;
+
+      float sigth = sqrt(mean*gain+rdnoise*rdnoise)/gain;
+      float sigth1 = sqrt(mean + rdnoise*rdnoise);
+      float sigthold = sqrt(mean*oldgain+rdnoise*rdnoise)/oldgain;
 
       cout << setiosflags(ios::right) << setiosflags(ios::fixed)
 	   << setw(9) << setprecision(2) << mean 
 	   << setw(7) << setprecision(2) << sigma 
 	   << setw(7) << setprecision(2) << sigth 
-	   << setw(9) << setprecision(1) << minv
-	   << setw(9) << setprecision(1) << maxv
+	   << setw(7) << setprecision(2) << sigth1 
+	   << setw(7) << setprecision(2) << sigthold
 	   << resetiosflags(ios::right)
 	   << endl;
     }

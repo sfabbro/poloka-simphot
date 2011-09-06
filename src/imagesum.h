@@ -104,10 +104,8 @@ public :
 
   virtual const string  TypeName() const { return "ImageSum";}
 
-  bool MakeFits();
-  bool MakeCatalog();
-  bool MakeAperCat();
-  bool MakeStarCat();
+  bool MakeFits() ;
+  bool MakeCatalog() ; 
   bool MakeDead();
   bool MakeSatur();
   bool MakeWeight();

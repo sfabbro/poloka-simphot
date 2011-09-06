@@ -3,9 +3,11 @@
 #define WCSUTILS__H
 
 #include <string>
-#include "gtransfo.h"
 
 class FitsHeader;
+class GtransfoLin;
+class TanPix2RaDec;
+class Gtransfo;
 class Frame;
 class StringList;
 
@@ -16,10 +18,11 @@ class StringList;
 */
 
 //! returns a transformation that combines availbale information in the header
-GtransfoRef WCSFromHeader(const FitsHeader &Head);
+bool WCSFromHeader(const FitsHeader &Head, Gtransfo* &Pix2RaDec);
 
 //! same as above
-GtransfoRef WCSFromHeader(const std::string &FitsName);
+bool WCSFromHeader(const std::string &FitsName, Gtransfo* &Pix2RaDec);
+
 
 
 //! Fills the fits file header with provided WCS transfo 
@@ -72,8 +75,8 @@ bool CopyWCS(const FitsHeader &FromHeader, FitsHeader &ToHeader);
 //! fetch pixel sizes in arcsecond from a header using WCS info
 void GetPixelSize(const FitsHeader& Head, double &SizeX, double &SizeY);
 
-//! Get Ra and DEC from WCS on center of image, return false if no wcs
-bool RaDecFromWCS(const FitsHeader &Header, double &Ra, double &Dec);
+//! Get Ra and DEC from WCS on center of image
+void RaDecFromWCS(const FitsHeader &Header, double &Ra, double &Dec);
 
 //! so far returns average pixel size in arcsecond 
 double PixelSize(const FitsHeader& Head);

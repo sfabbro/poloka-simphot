@@ -13,7 +13,6 @@
 #include "polokaexception.h"
 
 #include <cmath> //for floor(double)
-#include <sstream>
 
 /*! Overall structure of the PSF modelling:
 
@@ -1095,9 +1094,12 @@ bool ImagePSF::FitPSF(PSFStarList &Stars)
 	  if (Cards().allResidualsFileName != "")
 	    for (unsigned k =0; k < residuals->NTerms(); ++k)
 	      {
-		ostringstream resFileName;
-		resFileName << outputDirectory << CutExtension(Cards().lastResidualsFileName) << "_" << k << ".fits";
-		residuals->Coeffs(k).writeFits(resFileName.str());
+		char resFileName[64];
+		sprintf(resFileName,"%s%s_%d_%d.fits",
+			outputDirectory.c_str(),
+			CutExtension(Cards().allResidualsFileName).c_str(),
+			iterResiduals, k);
+		residuals->Coeffs(k).writeFits(resFileName);
 	      }
 	  
 	  if (nonLinDeg >= 0)
@@ -1198,9 +1200,10 @@ bool ImagePSF::FitPSF(PSFStarList &Stars)
   Write(); // actually write the PSF
   /* .. and write the fitted stars (to be able to extract the fluxes 
      without refitting) */
-  GtransfoRef wcs = WCSFromHeader(image);
-  if (!wcs) wcs = GtransfoRef();
+  Gtransfo *wcs;
+  if (!WCSFromHeader(image,wcs)) wcs = NULL;
   Stars.WriteTuple(reducedImage->Dir()+"psfstars.list",wcs, this);
+  if (wcs) delete wcs;
 
   return true;
 }
@@ -1589,7 +1592,7 @@ void ImagePSF::ResidualImage(const string &ResFitsName,
 {
   FitsImage image(reducedImage->FitsName());
   const FitsHeader &head = image;
-  FitsImage res(ResFitsName+".fits", head);
+  FitsImage res(ResFitsName, head);
   FitsImage stack(DirName(ResFitsName)+"/psf_res_stack.fits", 2*hSizeX+1, 2*hSizeY+1);
   for (PSFStarCIterator it = Stars.begin(); it != Stars.end(); ++it)
     {
@@ -1775,8 +1778,8 @@ bool ImagePSF::FitNonLinearity(const bool WriteResTuple) /* const */
   // from here on, it is only diagnostic code..
 
   // write the "corrected" star list
-  GtransfoRef wcs = WCSFromHeader(image);
-  if (!wcs) wcs = GtransfoRef();
+  Gtransfo *wcs;
+  if (!WCSFromHeader(image,wcs)) wcs = NULL;
   stars.WriteTuple((reducedImage->Dir()+"/psfstars2.list").c_str(),wcs,this);
 
   // write the "corrected" psf
@@ -1905,9 +1908,10 @@ bool MakePSF(const string &ImageName, const bool RefitPSF,
 	  string wholeStarRefCatName = DbConfigFindCatalog(starRefCatName.str());
 	  if (wholeStarRefCatName != "")
 	    {
-	      GtransfoRef readWcs = WCSFromHeader(head);
+	      Gtransfo *readWcs;
 	      TanPix2RaDec *wcs;
-	      if (readWcs && (wcs = dynamic_cast<TanPix2RaDec*>((Gtransfo*)readWcs)))
+	      if (WCSFromHeader(head, readWcs) 
+		  && ((wcs = dynamic_cast<TanPix2RaDec*>(readWcs))))
 		{
 		  BaseStarList starRefCat(wholeStarRefCatName);
 		  cout << " read " << starRefCat.size() << " stars from " 

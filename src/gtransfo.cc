@@ -21,14 +21,12 @@ bool IsIntegerShift(const Gtransfo *a_transfo)
 
   double dx = shift->Coeff(0,0,0);
   double dy = shift->Coeff(0,0,1);
-  double a11 = floor(shift->Coeff(1,0,0)+0.5);
-  double a22 = floor(shift->Coeff(0,1,1)+0.5);
-
-  static Point dumb(4000, 3000);
+  
+  static Point dumb(4000,4000);
   if (fabs(dx - int(floor(dx+0.5))) < eps && 
       fabs(dy - int(floor(dy+0.5))) < eps &&
-      fabs(a11*dumb.x+dx - shift->apply(dumb).x) < eps &&
-      fabs(a22*dumb.y+dy - shift->apply(dumb).y) < eps)    
+      fabs(dumb.x+dx - shift->apply(dumb).x) < eps &&
+      fabs(dumb.y+dy - shift->apply(dumb).y) < eps)    
     return true;
 
   return false;
@@ -852,8 +850,8 @@ void  GtransfoPoly::dump(ostream &S) const
 {
   for (unsigned ic=0; ic<2; ++ic)
     {
-      if (ic==0)   S << " newx = ";
-      else S << " newy = ";
+      if (ic==0)   S << "newx = ";
+      else S << "newy = ";
       for (unsigned p = 0; p<=deg; ++p)
 	for (unsigned py=0; py<=p; ++py)
 	  { 

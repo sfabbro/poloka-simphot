@@ -33,8 +33,6 @@ class ImageSubtraction : public ReducedImage, public KernelFitter {
 
     //! carry out the detection. Default is matched filter plus apreture photometry.
     bool MakeCatalog();
-    //! do cosmic but do not flag detection, only update weight
-    bool MakeCosmic();
     // ! Dead frame is the OR of Ref and New dead frames.
     bool MakeDead();
     //!  Satur frame is the OR of Ref and New satur frames.
@@ -59,7 +57,6 @@ class ImageSubtraction : public ReducedImage, public KernelFitter {
 
     string DetectionsName() const { return Dir()+"det.list";}
     string MatchedCatName() const { return Dir()+"matcheddet.list";}
-    string CatalogName()  const { return DetectionsName(); }
     
     //!
     ReducedImage *Clone() const;
