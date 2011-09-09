@@ -27,7 +27,7 @@
 //#define SWARP_COMMAND " /afs/in2p3.fr/throng/snovae/softsnls/swarp-2.17.1-with-fixes/bin/swarp "
 
 
-#define REPROCESS_WEIGHT_ONLINE_SCRIPT "$THRONG_DIR/softsnls/scripts-dh/reprocess_weight_image.csh " 
+#define REPROCESS_WEIGHT_ONLINE_SCRIPT " $THRONG_DIR/softsnls/scripts-dh/reprocess_weight_image.csh " 
 
 
 
@@ -672,7 +672,8 @@ bool SwarpStack::MakeFits()
       // HACK for weight contaminated with satur mask
       if (getenv("REPROCESS_WEIGHT_ONLINE"))
 	{
-	  string command = REPROCESS_WEIGHT_ONLINE_SCRIPT + " " +  ri.Dir() + " " + SwarpTmpDir()  ;
+	  string command_rep  = REPROCESS_WEIGHT_ONLINE_SCRIPT ;
+	  string command = command_rep + " " + ri.Dir() + " " + SwarpTmpDir()  ;
 	  cerr << "Running " << command << endl ;
 	  system(command.c_str());
 	  command = "cp " + SwarpTmpDir() + "/" + ri.Name() + "/weight.fits " + weightSwarpName ;
