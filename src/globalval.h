@@ -50,6 +50,9 @@ public :
   vector<double> getDoubleValues(const string& Key) const;
   void           setDoubleValues(const string &Key, const vector<double>& vals);
   vector<string> OutputLines() const;
+  void Dump() const;
+  void AppendTo(GlobalVal & glob) const ;
+  void AppendTo(map<string, string>& globalKeys) const ;
 
   bool ProcessLine(const string &Line);
 
