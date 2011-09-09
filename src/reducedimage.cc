@@ -154,7 +154,8 @@ void ReducedImage::FillSExtractorData(ForSExtractor & data,
 // j'ai enleve les bad non necessaires pour la comparaison a Terapix
 // fond en mode RELATIVE (dans prefs.h) == AUTO (dans datacard.sex) == carte de fond re-calculee
 void ReducedImage::FillSExtractorData_2(ReducedImage & rim_det, 
-					ForSExtractor & data)
+					ForSExtractor & data,
+					bool SE_take_back_as_0)
 {
   // what concerns on-the-flight decompression
   const char *tmpdir = getenv("IMAGE_TMP_DIR");
@@ -181,6 +182,18 @@ void ReducedImage::FillSExtractorData_2(ReducedImage & rim_det,
   data.backmean=0.0;
   // a l'air d'etre comme ca dans datacard terapix: data.back_type_manual = false ; 
   data.back_type_manual = false ; 
+
+  // mais on soustrait le fond nous meme avant
+  if (PolokaBackSub() && rim_det.PolokaBackSub())
+    {
+      cerr << "Poloka Back was subtracted" << endl ;
+      data.back_type_manual = true ; 
+    }
+  else
+    {
+      //  data.back_type_manual = false ; 
+      data.back_type_manual = SE_take_back_as_0 ;
+    }
 
   //on ne sauve pas le fond car on ne le soustrait pas
   //data.FitsBackName = FitsBackName();
@@ -622,7 +635,8 @@ ReducedImage::MakeCatalog(bool redo_from_beg,
 bool
 ReducedImage::MakeCatalog_2images(ReducedImage & rim_det, bool overwrite, 
 				  bool weight_from_measurement_image, 
-				  string catalog_name, bool do_segmentation)
+				  string catalog_name, bool do_segmentation, 
+				  bool SE_take_back_as_0)
 {
   int status = 0 ;
    if ( !overwrite )
@@ -648,7 +662,7 @@ ReducedImage::MakeCatalog_2images(ReducedImage & rim_det, bool overwrite,
   ForSExtractor data ;
   
 
-  FillSExtractorData_2(rim_det,data);
+  FillSExtractorData_2(rim_det,data, SE_take_back_as_0);
   if (do_segmentation) 
     data.FitsSegmentationName = rim_det.Dir()+"/seg.fits";
   data.Print();
@@ -660,6 +674,9 @@ ReducedImage::MakeCatalog_2images(ReducedImage & rim_det, bool overwrite,
    cerr << "Nombre d'objet detectes : " << stlse.size() << endl ;
    //SetSESky(Fond_1, "SExtractor computed background");
    //SetSESigma(SigmaFond_1, "SExtractor computed sigma on background"); 
+
+
+
   stlse.write(catalog_name);
 
 
@@ -746,6 +763,13 @@ bool ReducedImage::MakeAperCat()
   { // open a block to close the file after use
 
   FitsHeader  I(FitsName());
+
+  if (!bool(I.KeyVal("BACK_SUB")))
+    {
+      cout << " ReducedImage::MakeAperCat : this code cannot accomodate images with background left" << endl;
+      return false;
+    }
+
   gain = I.KeyVal("TOADGAIN");
   toadpixs = I.KeyVal("TOADPIXS");
   /* cannot go through the the average/variance trick to figure out
@@ -758,6 +782,7 @@ bool ReducedImage::MakeAperCat()
     cout << " INFO : found the USEGAIN key and using TOADGAIN " << endl;
   else if (inst != "Swarp" && I.HasKey("SEXSKY") && I.HasKey("SEXSIGMA"))
     {
+      cout << "INFO : computing gain with header values of sky level and variance" << endl ;
       double sexsky = I.KeyVal("SEXSKY");
       double sexsigma = I.KeyVal("SEXSIGMA");
       if (sexsky > 0) gain = sexsky/(sexsigma*sexsigma);
@@ -769,6 +794,7 @@ bool ReducedImage::MakeAperCat()
     }
   cout << " Assuming a gain of " << gain << endl;
   }
+
 
   //this code now "slices" the input images in order to accomodate monsters
 
@@ -1000,6 +1026,9 @@ bool ReducedImage::MakeAperCat()
   
   if (!apercat.empty())
     {
+      int Ngood = apercat.NSuccess() ;
+      double frac = Ngood/(1.*apercat.size());
+      cerr << "ReducedImage::MakeAperCat : Success rate : " << frac << endl ;
       vector<double> rads;
       const vector<Aperture> &a = apercat.front()->apers;
       unsigned naper = a.size();
@@ -1018,7 +1047,7 @@ bool ReducedImage::MakeAperCat()
 }
 
 		      
-bool ReducedImage::MakeStarCat()
+bool ReducedImage::MakeStarCat(bool overwrite, double SigToN_Min)
 {
   if (!MakeAperCat()) 
     {
@@ -1026,12 +1055,35 @@ bool ReducedImage::MakeStarCat()
       return false;
     }
   string starCatName = StarCatalogName();
-  if (FileExists(starCatName)) return true;
+  if (FileExists(starCatName) && (!overwrite) ) return true;
 
   double xSize, ySize, corr;
   StarScoresList scores;
   AperSEStarList apercat(AperCatalogName());
-  if (!FindStarShapes(apercat, 20, xSize, ySize, corr, scores))
+
+  // hacky way of dealing with very large catalogues of stars
+  double minsn = max(20., max(100., apercat.size() / 100.));
+  double frac_elim = 0. ;
+  double histo_val_min = 0. ;
+
+  /* patch dealing with very very big ref cats (200 000 objets) on very big images (20 000 x 20 000 */
+  if ( XSize() > 10000 &&  YSize() > 10000  &&  apercat.size() > 50000)
+    {
+      cout << "MakeStarCat : patch for big reference " << endl ; 
+      double SsurNmin = 300 ;
+      if (SigToN_Min > 0) SsurNmin = SigToN_Min ;
+      DataCards cards(DefaultDatacards());
+      int use_poloka_back = 1;
+      READ_IF_EXISTS(SsurNmin, "STAR_CAT_SIG_TO_NOISE_MIN", DParam);
+      cout << "MakeStarCat : minimal signa to noise : " << SsurNmin << endl ;
+      if (minsn > SsurNmin ) minsn = SsurNmin ;
+      frac_elim = 0.25 ;// to cut low surface brightness objects
+      histo_val_min = 0.5 ;// to avoid residual image defects
+    }
+  /* end of patch dealing with big stacks*/
+
+
+  if (!FindStarShapes(apercat, minsn, xSize, ySize, corr, scores, frac_elim, histo_val_min))
     {
       cout << " MakeStarList : could not find the star locus for " 
 	   << Name() <<endl;
@@ -1332,7 +1384,7 @@ bool ReducedImage::MakeWeight()
 		flat(i,j) *= factor;
 	}
       /* Next line is a BUG !!! : it should read weights *= flat; */
-      weights.MultiplyBySquare(flat) ;
+      weights *= flat;
       weights.AddOrModKey("FLATPIXS",true," this weight accounts for flat variations");
       cout << " accounting for flat variations in " << FitsWeightName() << endl;
 
@@ -1871,6 +1923,17 @@ bool  ReducedImage::BackSub() const
 }
 SET_ROUTINE(BackSub, bool, "BACK_SUB");
 
+bool  ReducedImage::PolokaBackSub() const
+{
+
+  FitsHeader head(FitsName());
+  if (head.IsValid())
+    {
+      if (head.HasKey("POLOKABACK_SUB")) return bool(head.KeyVal("POLOKABACK_SUB"));
+    }
+  return(false);
+}
+SET_ROUTINE(PolokaBackSub, bool, "POLOKABACK_SUB");
 
 REMOVE_ROUTINE(BackLevel,"BACKLEV");
 bool ReducedImage::SetBackLevel(const double &Value, const string Comment)
@@ -2590,4 +2653,204 @@ ReducedImageCIterator ReducedImageList::Find(const string &Name) const
   
 
 
+bool ReducedImage::SubPolokaBack_Slices(int poloka_back_mesh_sizex, 
+					int poloka_back_mesh_sizey, 
+					double filter_half_width, bool save_back, 
+					bool add_mask)
+{ 
+  {
+    FitsHeader head(FitsName());
+    if (PolokaBackSub())
+      {
+	cerr << "Poloka Back already subtracted " << endl ;
+	return(true);
+      }
+  }
+  DataCards cards(DefaultDatacards());
 
+  string segName = FitsSegmentationName();
+  string weightName = FitsWeightName() ; 
+  int poloka_back_object_mask_border = 5;     
+  READ_IF_EXISTS(poloka_back_object_mask_border,"POLOKA_BACK_OBJECT_MASK_BORDER",IParam);
+  cout << "SubPolokaBack_Slices POLOKA_BACK_OBJECT_MASK_BORDER " << poloka_back_object_mask_border << endl ;
+  //poloka_back_object_mask_border = 10; 
+ 
+  if (FileExists(segName))
+    {  
+      cerr << "using " << segName << endl ;
+      string segcvName = CutExtension(segName) +".cv."+FileExtension(segName);
+      string weightcvName = CutExtension(weightName) +".segcv."+FileExtension(weightName);
+      int Overlap = 2*poloka_back_object_mask_border ;
+      int SliceYSize = 50 ;
+      cout << " will use convolved object mask " << segcvName << endl;
+
+
+      // image de seg convoluee, si pas deja faite
+      if ( !FileExists(segcvName) )
+	{  
+	  cout << " convolving (slices)  object mask with bordersize = " << poloka_back_object_mask_border << endl;
+
+	  FitsSlice img_segslices(segName, SliceYSize, Overlap); 
+	  FitsHeader headseg(segName);
+	  FitsOutSlice img_segcvslices(segcvName,headseg, SliceYSize, Overlap) ;
+	  do {
+	//cerr << "taille : " << img_segslices.Nx() << " " <<  img_segslices.Ny() << " " <<  img_segslices.SliceSize()  << " , " << img_segcvslices.Nx() << " " <<  img_segcvslices.Ny() << " " <<  img_segcvslices.SliceSize() << endl ;
+	    if (img_segslices.LastSlice())
+	      {
+		// ! image plus grande donc bordure de convolution non respectee
+		// on donne donc le ymax jusqu'ou il faut convoluer
+		Image img(img_segcvslices.Nx(), img_segcvslices.Ny()) ;
+		for(int i = 0 ; i < img_segslices.Nx() ; i++)
+		  for(int j = 0 ; j < img_segslices.Ny() ; j++)
+		    img(i,j) =  img_segslices(i,j) ;
+		ConvolveSegMask(img, img_segcvslices, poloka_back_object_mask_border, img_segslices.Ny() );
+	   
+	      }
+	    else
+	      ConvolveSegMask(img_segslices, img_segcvslices, poloka_back_object_mask_border);
+	    //cerr << "writing " << segcvName << endl ;
+	
+	  }
+	  while (img_segslices.LoadNextSlice() && img_segcvslices.WriteCurrentSlice()) ;
+	}// fin de image seg convoluee
+      else
+	cout << "convolved seg mask already there: " << segcvName << endl ;
+      // weight multiplie
+      {
+      FitsSlice img_segcvslices(segcvName, SliceYSize,0) ;
+      FitsSlice img_weightslices(weightName, SliceYSize,0);
+    // passage par le disque
+      FitsHeader headweight(weightName);
+      FitsOutSlice weight_segslices(weightcvName, headweight, SliceYSize,0);
+      int nzero = 0, ntot=0 ;
+      do {
+	Pixel *pm = img_segcvslices.begin();
+	Pixel *end = img_segcvslices.end();
+	Pixel *pm1 = weight_segslices.begin() ; 
+	Pixel *end1 = weight_segslices.end();
+	Pixel *pm2 = img_weightslices.begin() ;
+	Pixel *end2 = img_weightslices.end();
+	while (pm < end && pm1 < end1 &&  pm2 < end2 )
+	  {
+	    if (*pm == 0) 
+	      *pm1 = *pm2 ;
+	    else 
+	      {
+		*pm1 = 0. ; nzero++;
+	      }
+	    ++pm1 ; ++pm2 ; ++pm ; ntot++;
+	  }
+	weight_segslices.WriteCurrentSlice();
+      }
+      while ((img_weightslices.LoadNextSlice()) && (img_segcvslices.LoadNextSlice()) ) ;
+      cout << "convolved mask zero pixels : " << nzero << " " << 100.*nzero/(ntot*1.) << "%" << endl ;
+      } // fin weight multiplie
+
+      weightName = weightcvName ;
+    } // fin calcul weight + segmentation cv
+  
+  /*  if (add_mask)
+    {
+      cerr << "Masking big stars " << endl ;
+      FitsImage ww(weightName, RW) ;
+      AddMask(ww,0., "D4");
+      }*/
+
+
+
+  // read mesh size from datacards if not supplied
+  if (poloka_back_mesh_sizex < 0 || poloka_back_mesh_sizey < 0)
+    {
+      poloka_back_mesh_sizex = 256 ;
+      poloka_back_mesh_sizey = 256 ;
+      if (cards.HasKey("POLOKA_BACK_MESH_SIZE"))
+	{
+	  poloka_back_mesh_sizex = poloka_back_mesh_sizey = cards.IParam("POLOKA_BACK_MESH_SIZE");
+	}
+      else
+	{
+	  READ_IF_EXISTS(poloka_back_mesh_sizex,"POLOKA_BACK_MESH_SIZEX", IParam);
+	  poloka_back_mesh_sizey = poloka_back_mesh_sizex;
+	  READ_IF_EXISTS(poloka_back_mesh_sizey,"POLOKA_BACK_MESH_SIZEY", IParam);
+	}
+    }
+    // simple  isn't it?
+    cout << "TOADS: Computing Image Background with mesh = " 
+	 <<  poloka_back_mesh_sizex << ',' << poloka_back_mesh_sizey << endl;
+
+    // calcul du fond
+    ImageBack back(FitsName(), poloka_back_mesh_sizex, poloka_back_mesh_sizey,weightName, /*halfwidth=*/ filter_half_width);
+
+
+   { // save the mini back
+     Pixel mean, sigma, pmin, pmax ;
+     (back.BackValue()).MeanSigmaValue(&mean, &sigma);
+     pmin = (back.BackValue()).MinValue();
+     pmax = (back.BackValue()).MaxValue();
+     cerr << "MiniBack name min max mean sigma: "  << FitsMiniBackName() << " " << pmin << " " << pmax << " " << mean << " " << sigma << endl ;
+     FitsImage miniBack(FitsMiniBackName(), back.BackValue());
+     miniBack.AddOrModKey("SEXBKGSX", poloka_back_mesh_sizex);
+     miniBack.AddOrModKey("SEXBKGSY", poloka_back_mesh_sizey);
+     miniBack.AddOrModKey("BITPIX",-32);
+     miniBack.AddOrModKey("EXTRAPIX",poloka_back_object_mask_border,
+			  " by how many pixels we enlarged the segmentation sextractor patches");
+     miniBack.AddCommentLine("Poloka Computed Miniback (class ImageBack)");
+   }
+   cout << "TOADS: Subtracting Image Background" << endl ;
+   int slicesize = 50 ;
+   FitsSlice img(FitsName(), slicesize,0); 
+   string img_wobackName =  CutExtension(FitsName()) +".woback."+FileExtension(FitsName());
+   string bigbackName = "back.fits";
+   FitsHeader head(FitsName());
+   FitsOutSlice imgout(img_wobackName, head, slicesize,0);
+   imgout.AddOrModKey("POLOKABACK_SUB",true) ;
+   int bbi = head.KeyVal("BITPIX") ;
+   if ( bbi == 16)
+     {
+       cerr << "Taking bitpix 32 " << endl ;
+       imgout.AddOrModKey("BITPIX",32); 
+     }
+   //FitsOutSlice backout(bigbackName, head, slicesize,0); 
+   //if ( bbi == 16)
+   // backout.AddOrModKey("BITPIX",32); 
+   do {
+     int ymin = img.ImageJ(0) ;
+     int ymax = ymin + img.SliceSize() ;
+     //cerr << " subtracting background " << ymin << " " << ymax << endl ;
+     Image *largeBack = back.BackgroundImage(Frame(0,ymin,XSize()-1,ymax-1));
+     for(int i = 0 ; i < imgout.Nx() ; i++)
+       for(int j = 0 ; j < largeBack->Ny() ; j++)
+	 {
+	   //backout(i,j) = (*largeBack)(i,j);
+	   imgout(i,j) = img(i,j)-(*largeBack)(i,j);
+	 }
+     delete largeBack ;
+   }
+   while ( img.LoadNextSlice() && imgout.WriteCurrentSlice() ) ;
+
+   if (save_back)
+     {
+       
+       FitsSlice iimg(FitsName(), slicesize,0); 
+       FitsOutSlice backout(FitsBackName(), head, slicesize,0);
+       backout.AddOrModKey("POLOKABACK_SUB",true) ;
+       if ( bbi == 16)
+	 {
+	   cerr << "Taking bitpix 32 " << endl ;
+	   backout.AddOrModKey("BITPIX",32); 
+	 } 
+       do {
+	 int ymin = iimg.ImageJ(0) ;
+	 int ymax = ymin + iimg.SliceSize() ;
+	 Image *largeBack = back.BackgroundImage(Frame(0,ymin,XSize()-1,ymax-1));
+	 for(int i = 0 ; i < backout.Nx() ; i++)
+	   for(int j = 0 ; j < largeBack->Ny() ; j++)
+	     {
+	       backout(i,j) = (*largeBack)(i,j);
+	     }
+	 delete largeBack ;
+       }
+       while ( iimg.LoadNextSlice() && backout.WriteCurrentSlice() ) ;
+     }
+   return(true);
+}
