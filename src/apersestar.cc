@@ -706,6 +706,7 @@ bool FindStarShapes(const AperSEStarList &List, const double MinSN,
 		    double &XSize, double &YSize, double &Corr, 
 		    StarScoresList &scores, const double frac_elim, const double histo_val_min, int verbose)
 {
+  double my_histo_val_min = 0. ;
   if (histo_val_min >0) my_histo_val_min = histo_val_min ;
 
   if (verbose > 0 )
