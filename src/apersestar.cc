@@ -583,6 +583,7 @@ void AperSEStar::read_it(fastifstream& r, const char* Format)
 
   r >> gmxx >> gmyy >> gmxy ;
 
+
   r >> gflag ; 
 
   unsigned naper;
@@ -676,7 +677,7 @@ int AperSEStarList::write(const std::string &FileName) const
 #include "histopeakfinder.h"
 #include "histo2d.h"
 
-static double  Find_Fluxmax_Min(const AperSEStarList &List,  const double MinSN, const double frac_elim, const double histo_val_min){
+double  Find_Fluxmax_Min(const AperSEStarList &List,  const double MinSN, const double frac_elim, const double histo_val_min, int verbose){
 
   double *tab_f = new double[List.size()];
   int n = 0 ;
@@ -697,6 +698,8 @@ static double  Find_Fluxmax_Min(const AperSEStarList &List,  const double MinSN,
   sort(tab_f, tab_f+n);
   int ii = int(frac_elim*n) ;
   double fmin = tab_f[ii];
+  if (verbose > 0 )
+  cout << "In Find_Fluxmax_Min : fluxmax min for SsurN>" << MinSN << " :" << ii << "/" << n << " : " << fmin << endl ;
   delete [] tab_f ;
   return(fmin);
 
@@ -723,7 +726,7 @@ bool FindStarShapes(const AperSEStarList &List, const double MinSN,
   double flumax_min = -1 ;
   // eliminating  frac_elim % with the lowest surface brightness 
   if (frac_elim > 0 )
-    flumax_min = Find_Fluxmax_Min(List, MinSN, frac_elim,my_histo_val_min );
+    flumax_min = Find_Fluxmax_Min(List, MinSN, frac_elim,my_histo_val_min, verbose );
   for (AperSEStarCIterator i = List.begin(); i != List.end(); ++i)
     {
       const AperSEStar &s = **i;
@@ -767,7 +770,7 @@ bool FindStarShapes(const AperSEStarList &List, const double MinSN,
       if (k>=1) cout << " INFO : FindStarShape trying histo max # " << k << endl;
       double xMax, yMax;
       histo.MaxBin(xMax, yMax);
-      ok = HistoPeakFinder(scores, histo, xMax, yMax, ellipse);
+      ok = HistoPeakFinder(scores, histo, xMax, yMax, ellipse, verbose);
       if(verbose) cout << "FindStarShape : shape ellipse " << ellipse << endl;
       if (!ok)
 	{
