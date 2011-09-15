@@ -200,7 +200,7 @@ bool MatchGuess(const BaseStarList &List1, const BaseStarList &List2,
   else cout << " MatchGuess : found a guess with WCS \n";
   
   cout << " MatchGuess : guessed transfo : \n";
-  matchList->DumpTransfo();
+  cout << *(matchList->Transfo()) << endl << " list size : " << matchList->size() << endl;
 
   // no need to delete with countedref
   // this is included in countedref operator =
