@@ -206,6 +206,7 @@ bool SlowPhotomRatio(const FluxPairList &L, const double NSigChi2Cut, double &R,
       double chi2Mean, chi2Med, chi2Sig;
       Dmean_median_sigma(chi2Vals, count, chi2Mean, chi2Med, chi2Sig);
       chi2Cut = chi2Med+NSigChi2Cut*chi2Sig;
+      if (chi2Cut <1e-2) chi2Cut = 1e-2; // in case we got twice the same list as input ! 
       bool outliers = false;
       for (int k=0; k < count; ++k) if (chi2Vals[k] > chi2Cut) {outliers = true;break;}
       if (!outliers && oldCount == count && chi2Old - chi2 < 1e-3) break;
@@ -220,7 +221,8 @@ bool SlowPhotomRatio(const FluxPairList &L, const double NSigChi2Cut, double &R,
       cerr  << "WARNING SlowPhotomRatio : nan value " << endl ;
       return false ;
     }
-  cout << " chi2 photom ratio, niter " << chi2/(L.size()-1) << ' ' << niter << endl;
+  // DEBUG
+  cout << " chi2 photom ratio, niter " << chi2/(L.size()-1) << ' ' << R << ' ' << niter << endl;
   return (niter<10);
 }
 
