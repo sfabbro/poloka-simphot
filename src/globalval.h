@@ -14,12 +14,13 @@
 #include <list>
 #include <vector>
 #include <map>
-
+#include <iostream>
 
 using namespace std;
 
 //! to store in files things like "Key value(s)" things.
 // what exactly does this class bring except complicating a map?
+// answer : use a map if you prefer.
 class GlobalVal : private  map<string, vector<string> > {
 public :
 
@@ -61,6 +62,8 @@ private:
   template<typename T>
   bool GenericAddKey(const string& Key, const T& Values);
 };
+
+ostream& operator << (ostream &, const GlobalVal &G);
 
 
 
