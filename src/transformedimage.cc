@@ -71,6 +71,29 @@ ImageGtransfo::ImageGtransfo(const ReducedImage &Ref, const ReducedImage& ToAlig
     }
 }
 
+// the old way, usefull for big frames
+ImageGtransfo::ImageGtransfo(const ReducedImage &Ref, const ReducedImage& ToAlign, int max_order,int N_CUT_LIST, int N_FRAME_LIST,float min_match_ratio)
+{
+ //transfoFromRef = NULL;
+  //transfoToRef = NULL;
+  geomRefName = Ref.Name();
+  if (!ImageListMatch(Ref, ToAlign, transfoFromRef, transfoToRef, min_match_ratio, max_order,N_CUT_LIST, N_FRAME_LIST))
+    {
+      cerr << " Could not match lists from " << Ref.Name() << " and " <<  ToAlign.Name() << endl;
+    }
+  outputImageSize = Ref.PhysicalSize();
+  // use the same transfo as the one used to actually transform the image.
+  if (transfoFromRef)
+    {scaleFactor = 1./sqrt(fabs(transfoFromRef->Jacobian(outputImageSize.Nx()/2, outputImageSize.Ny()/2)));}
+  else scaleFactor = 1.;
+  cout << " Scale factor for rebinning = " << scaleFactor << endl;
+  double pixRatio = ToAlign.PixelSize()/Ref.PixelSize();
+  if ( fabs( pixRatio / scaleFactor - 1.) > 0.05 ) 
+    { 
+      cerr << " WARNING : header pixel sizes ratio=" << pixRatio<< " doesn't match scale factor="
+	   << scaleFactor << " \n for images " << ToAlign.Name() << " and " << Ref.Name() << endl;
+    }
+}
 
 
 ImageGtransfo::ImageGtransfo()

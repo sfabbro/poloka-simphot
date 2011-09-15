@@ -76,6 +76,14 @@ public:
   ImageGtransfo(const Gtransfo* TransfoFromRef, const Gtransfo* TransfoToRef, const Frame &OutputImageSize, const string &GeomRefName );
   //! the output image size is the one of the Ref. Finds the transfo(s).
   ImageGtransfo(const ReducedImage &Ref, const ReducedImage& ToAlign,float min_match_ratio=0);
+
+
+  // the old way, useful fora  big reference frame
+  // N_CUT_LIST and N_FRAME_LIST can be chosen to 500,300 for a CCD frame, to 50000, 10000 for a big deep stack.
+  // max_order can be set to 3 for a CCD frame, and 10 for a big stack.
+  ImageGtransfo(const ReducedImage &Ref, const ReducedImage& ToAlign, int max_order ,int N_STAR_CUT_LIST, int N_STAR_FRAME_LIST,float min_match_ratio=0);
+
+
   //!
   ImageGtransfo();
   //!

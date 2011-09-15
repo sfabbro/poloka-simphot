@@ -180,8 +180,53 @@ vector<double> GlobalVal::getDoubleValues(const string &Key) const
   return ret;
 }
 
+void GlobalVal::AppendTo(GlobalVal & glob) const
+{
+for (const_iterator i = begin(); i != end(); ++i)
+    {
+      //      const vector<double> &values = i->second;
+      const vector<string> &values = i->second;
+      if (values.size() == 0) glob.AddKey( i->first, "") ;
+      else
+	glob.AddKey( i->first, values) ;
+    }
+}
+
+
+void GlobalVal::AppendTo(map<string, string>& globalKeys) const
+{
+for (const_iterator i = begin(); i != end(); ++i)
+    {
+      //      const vector<double> &values = i->second;
+      const vector<string> &values = i->second;
+      if (values.size() == 0) globalKeys[i->first]=""; 
+      else
+	{
+	  string l_values ;
+	  for(int ii = 0 ; ii < values.size(); ii++)
+	    l_values += " " + values[ii];
+	  globalKeys[i->first]=l_values ;
+	}
+    }
+}
+
+
+
 
 #include <sstream>
+
+void GlobalVal::Dump() const
+{
+  for (const_iterator i = begin(); i != end(); ++i)
+    {
+      const vector<string> &values = i->second;
+      //if (values.size() == 0) continue;
+      cerr << i->first;
+      for (unsigned k=0; k < values.size(); ++k) cerr << ' ' << values[k];
+      cerr << endl ;
+    }
+  return ;
+}
 
 vector<string> GlobalVal::OutputLines() const
 {
