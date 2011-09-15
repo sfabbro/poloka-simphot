@@ -304,9 +304,11 @@ const AnalyticPSF *ChooseAnalyticPSF(const string &Name)
 /* code to test a psf profile (in order to make sure that the 
 derivatives are OK....)
 */
-
-
 #include "analyticpsf.h"
+#include <iostream>
+
+using namespace std;
+
 
 int main( int nargs, char **args)
 {
@@ -328,12 +330,14 @@ int main( int nargs, char **args)
 
 
 
-  double xc = 0.25,yc = 0.45;
+  double xc = 0.85,yc = 0.70;
   
   Vect posDer(2);
   Vect paramDer(npar);
   Vect params;
   psf->InitParamsFromSeeing(2, params);
+  params(1) = params(0)*2; // introduce some asymmetry 
+  params(2) = 0.1*params(0); // introduce some asymmetry 
   for (int i=-10; i <=10 ; ++i)
     for (int j=-10 ; j <= 10; ++j)
       {
