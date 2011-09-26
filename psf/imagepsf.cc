@@ -957,7 +957,10 @@ bool ImagePSF::FitPSF(PSFStarList &Stars)
   cout << " PSF half sizes = " << hSizeX << ' ' << hSizeY << endl;
   analyticPSF = ChooseAnalyticPSF(Cards().analyticKind);
   npar = analyticPSF->NPar();
-  double seeing = reducedImage->Seeing();
+  double seeing = reducedImage->GFSeeing();
+  if (seeing <= 0) 
+    seeing = reducedImage->Seeing();
+  cout << " FitPSF: seeing  = " <<  seeing <<  endl;
   Vect startParams(npar); // initial uniform params
   analyticPSF->InitParamsFromSeeing(seeing,startParams);
 
@@ -1088,7 +1091,7 @@ bool ImagePSF::FitPSF(PSFStarList &Stars)
 	  if (Cards().allResidualsFileName != "")
 	    for (unsigned k =0; k < residuals->NTerms(); ++k)
 	      {
-		char resFileName[64];
+		char resFileName[640];
 		sprintf(resFileName,"%s%s_%d_%d.fits",
 			outputDirectory.c_str(),
 			CutExtension(Cards().allResidualsFileName).c_str(),
