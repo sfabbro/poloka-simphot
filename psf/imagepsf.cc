@@ -867,8 +867,11 @@ bool ImagePSF::FitParametersVariation(PSFStarList &Stars, double MaxChi2)
 	      }
 	}
       
+
+      
+
       if (cholesky_solve(a, b, "U")!= 0)
-	{
+ 	{
 	  cout << " ImagePSF::FitParametersVariation : could not solve for PSF spatial variation " 
 	       << endl;
 	  return false;
@@ -984,7 +987,6 @@ bool ImagePSF::FitPSF(PSFStarList &Stars)
   FitsImage image(reducedImage->FitsName());
   skylev = image.KeyVal("SKYLEV");
 
-  // first fit of stars.
   for (PSFStarIterator i = Stars.begin(); i != Stars.end(); )
     {
       PSFStar &s = **i;
@@ -1171,7 +1173,7 @@ bool ImagePSF::FitPSF(PSFStarList &Stars)
   if (Cards().lastResidualsFileName != "")
     for (unsigned k =0; k < residuals->NTerms(); ++k)
       {
-	char resFileName[64];
+	char resFileName[640];
 	sprintf(resFileName,"%s%s_%d.fits",
 		outputDirectory.c_str(),
 		CutExtension(Cards().lastResidualsFileName).c_str(),k);
