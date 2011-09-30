@@ -499,6 +499,7 @@ ReducedImage::MakeCatalog(bool redo_from_beg,
 		string cvName = CutExtension(segmentationMask->FileName())
 		  +".cv."+FileExtension(segmentationMask->FileName());
 		FitsImage toto(cvName,*segmentationMask,*segmentationMask);
+		toto.AddOrModKey("CONVOLUTION_WSIZE",poloka_back_object_mask_border);
 	      }
 	      // build a weight image with objects masked
 
@@ -632,7 +633,7 @@ ReducedImage::MakeCatalog(bool redo_from_beg,
 // version simplifiee pour 2 images : detection + mesure
 // pas de recuparation du masque de saturation
 
-bool
+int
 ReducedImage::MakeCatalog_2images(ReducedImage & rim_det, bool overwrite, 
 				  bool weight_from_measurement_image, 
 				  string catalog_name, bool do_segmentation, 
@@ -870,11 +871,27 @@ bool ReducedImage::MakeAperCat()
   vector<double> rads;
   DataCards cards(DefaultDatacards());
   
-  // FIXED APERTURE RADIUS, in ARCSECONDS ... 
+  // FIXED APERTURE RADIUS, in PIXELS or ARCSECONDS ... 
   // may be used for the calibration.
+  
+  bool rads_ok = false ;
+  if (cards.HasKey("FIXED_APER_RADS_PIXELS")) 
+    {
+      cout << " using FIXED APER RAD values (pixels): ";
+      fixed_aper_rads = true;
+      int n = cards.NbParam("FIXED_APER_RADS_PIXELS");
+      for(int i=0;i<n;i++) 
+	{
+	  double r = cards.DParam("FIXED_APER_RADS_PIXELS",i);
+	  cout << " " << r;
+	  rads.push_back(r);
+	}
+      cout << "\n";
+      rads_ok = true ;
+    }
   if (cards.HasKey("FIXED_APER_RADS")) 
     {
-      cout << " using FIXED APER RAD values: ";
+      cout << " using FIXED APER RAD values (arcsec): ";
       fixed_aper_rads = true;
       int n = cards.NbParam("FIXED_APER_RADS");
       for(int i=0;i<n;i++) 
@@ -885,13 +902,24 @@ bool ReducedImage::MakeAperCat()
 	  rads.push_back(r);
 	}
       cout << "\n";
+      rads_ok = true ;
     }
-  else if (cards.HasKey("APER_RADS")) 
+  // in seeing
+  if (cards.HasKey("APER_RADS")) 
     {
       int n = cards.NbParam("APER_RADS");
-      for (int i=0; i < n ; ++i) rads.push_back(cards.DParam("APER_RADS",i));
+      cout << " reading APER RAD values in " << DefaultDatacards() << " : "  ;
+      for (int i=0; i < n ; ++i) 
+	{
+	  double r = cards.DParam("APER_RADS",i) ;
+	  rads.push_back(r);
+	  cout << r << " " ;
+	}
+      cout << endl ;
+      rads_ok = true ;
+	  
     }
-  else
+  if ( ! rads_ok )
     {
       cout << " no APER_RADS card in " << DefaultDatacards()  << endl
 	   << " resorting to internal defaults " << endl;
@@ -2692,37 +2720,40 @@ bool ReducedImage::SubPolokaBack_Slices(int poloka_back_mesh_sizex,
 
 	  FitsSlice img_segslices(segName, SliceYSize, Overlap); 
 	  FitsHeader headseg(segName);
-	  FitsOutSlice img_segcvslices(segcvName,headseg, SliceYSize, Overlap) ;
-	  do {
-	//cerr << "taille : " << img_segslices.Nx() << " " <<  img_segslices.Ny() << " " <<  img_segslices.SliceSize()  << " , " << img_segcvslices.Nx() << " " <<  img_segcvslices.Ny() << " " <<  img_segcvslices.SliceSize() << endl ;
-	    if (img_segslices.LastSlice())
-	      {
-		// ! image plus grande donc bordure de convolution non respectee
-		// on donne donc le ymax jusqu'ou il faut convoluer
-		Image img(img_segcvslices.Nx(), img_segcvslices.Ny()) ;
-		for(int i = 0 ; i < img_segslices.Nx() ; i++)
-		  for(int j = 0 ; j < img_segslices.Ny() ; j++)
-		    img(i,j) =  img_segslices(i,j) ;
-		ConvolveSegMask(img, img_segcvslices, poloka_back_object_mask_border, img_segslices.Ny() );
+	  {
+	    FitsOutSlice img_segcvslices(segcvName,headseg, SliceYSize, Overlap) ;
+	    do {
+	      if (img_segslices.LastSlice())
+		{
+		  // ! image plus grande donc bordure de convolution non respectee
+		  // on donne donc le ymax jusqu'ou il faut convoluer
+		  Image img(img_segcvslices.Nx(), img_segcvslices.Ny()) ;
+		  for(int i = 0 ; i < img_segslices.Nx() ; i++)
+		    for(int j = 0 ; j < img_segslices.Ny() ; j++)
+		      img(i,j) =  img_segslices(i,j) ;
+		  ConvolveSegMask(img, img_segcvslices, poloka_back_object_mask_border, img_segslices.Ny() );
 	   
-	      }
-	    else
-	      ConvolveSegMask(img_segslices, img_segcvslices, poloka_back_object_mask_border);
-	    //cerr << "writing " << segcvName << endl ;
-	
-	  }
-	  while (img_segslices.LoadNextSlice() && img_segcvslices.WriteCurrentSlice()) ;
-	}// fin de image seg convoluee
+		}
+	      else
+		ConvolveSegMask(img_segslices, img_segcvslices, poloka_back_object_mask_border);
+	    }
+	    while (img_segslices.LoadNextSlice() && img_segcvslices.WriteCurrentSlice()) ;
+	  }// image segcvName saved on disk
+	  {
+	    FitsHeader headcv(segcvName, RW);
+	    headcv.AddOrModKey("CONVOLUTION_WSIZE",poloka_back_object_mask_border);
+	  }// header image segcvName modified
+	}
       else
 	cout << "convolved seg mask already there: " << segcvName << endl ;
-      // weight multiplie
+      // multiplying the weight 
       {
       FitsSlice img_segcvslices(segcvName, SliceYSize,0) ;
       FitsSlice img_weightslices(weightName, SliceYSize,0);
     // passage par le disque
       FitsHeader headweight(weightName);
       FitsOutSlice weight_segslices(weightcvName, headweight, SliceYSize,0);
-      int nzero = 0, ntot=0 ;
+      int nunused = 0, ntot=0 ;
       do {
 	Pixel *pm = img_segcvslices.begin();
 	Pixel *end = img_segcvslices.end();
@@ -2736,26 +2767,19 @@ bool ReducedImage::SubPolokaBack_Slices(int poloka_back_mesh_sizex,
 	      *pm1 = *pm2 ;
 	    else 
 	      {
-		*pm1 = 0. ; nzero++;
+		*pm1 = 0. ; nunused++;
 	      }
 	    ++pm1 ; ++pm2 ; ++pm ; ntot++;
 	  }
 	weight_segslices.WriteCurrentSlice();
       }
       while ((img_weightslices.LoadNextSlice()) && (img_segcvslices.LoadNextSlice()) ) ;
-      cout << "convolved mask zero pixels : " << nzero << " " << 100.*nzero/(ntot*1.) << "%" << endl ;
+      cout << "convolved mask unused pixels : " << nunused << " " << 100.*nunused/(ntot*1.) << "%" << endl ;
       } // fin weight multiplie
 
       weightName = weightcvName ;
     } // fin calcul weight + segmentation cv
   
-  /*  if (add_mask)
-    {
-      cerr << "Masking big stars " << endl ;
-      FitsImage ww(weightName, RW) ;
-      AddMask(ww,0., "D4");
-      }*/
-
 
 
   // read mesh size from datacards if not supplied
