@@ -139,7 +139,7 @@ Usefull in case of artificially smoothed images
   // pour processer 2 images : detection + mesure, en simplifie
   //weight_from_measurement_image : detection et measurement weight map = measurement weight map.
   // catalog_name : Dir()+"/sedble.list" par exemple.
-  bool MakeCatalog_2images(ReducedImage & rim_det, bool overwrite, 
+  int MakeCatalog_2images(ReducedImage & rim_det, bool overwrite, 
 			   bool weight_from_measurement_image, 
 			   string catalog_name, bool do_segmentation, 
 			   bool SE_take_back_as_0);
