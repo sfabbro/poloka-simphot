@@ -38,6 +38,7 @@ def build( bld ):
                       'toadsflat',
                       'toadslib', 
                       'toadspsf',
+                      'toadssimphot',
                       'toadslc' ]
         
         if not bld.env.global_lapack:
@@ -50,7 +51,7 @@ def build( bld ):
                                  '../src_utils', 
                                  '../src_base', 
                                  '../src', '../flat',
-                                 '../psf', '../lc' ], 
+                                 '../psf', '../lc', '../simphot' ], 
                     libs     = [ 'm', 'z'], 
                     uselib = [ 'CFITSIO', 'SEX' ],
                     use = local_libs,
