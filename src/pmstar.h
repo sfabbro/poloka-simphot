@@ -6,6 +6,8 @@
 
 class fastifstream;
 
+
+//! a BaseStar with proper motions, in pixels/day
 class PmStar : public BaseStar
 {
  public :

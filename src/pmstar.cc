@@ -6,8 +6,8 @@ std::string PmStar::WriteHeader_(std::ostream &s, const char* i) const
 {
   if (i== NULL) i= "";
   string baseStarFormat =  BaseStar::WriteHeader_(s, i);
-  s << "# pmx"<< i <<" : proper motion along x " << endl;
-  s << "# pmy"<< i <<" : proper motion along y " << endl;
+  s << "# pmx"<< i <<" : proper motion along x (pixels/day)" << endl;
+  s << "# pmy"<< i <<" : proper motion along y (pixels/day)" << endl;
   return baseStarFormat+" PmStar 1";
 }
 
