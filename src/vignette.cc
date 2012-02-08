@@ -191,32 +191,22 @@ void Vignette::UpdateResiduals()
 }
 
 int Vignette::KillOutliers(const double NSigCut)
-{    
-  double sw = 0;
-  double sf = 0;
-  double sf2 = 0;
+{
+  const double G = ri->Gain();
   PixelType *pw = weightPix.begin();
+  const PixelType *pi = imagePix.begin();
   const PixelType *pr = residuals.begin();
   const PixelType *pend = residuals.end();
-  for ( ; pr<pend; ++pr, ++pw)
+  int nout = 0;
+  for ( ; pr<pend; ++pr, ++pw, ++pi)
     {
-      sw += *pw; sf += *pw * (*pr); sf2 += *pw* sq(*pr);   
+      const double w = (*pw);
+      const double M = (*pi) - (*pr);
+      const double sig = sqrt((1.0/w) + (photomRatio*M/G) + 0.001*M*M);
+      if((*pr) > (NSigCut*sig)) {(*pw) = 0; ++nout;}
     }
-  if (sw == 0) return 0;
-  double mean = sf/sw;
-  double sigma = sf2/sw-sq(mean);
-  if (sigma<=0) return 0; // might happen with a single pixel.
-  sigma = sqrt(sigma);
-  double cuth = mean + NSigCut * sigma;
-  double cutl = mean - NSigCut * sigma;
-  int outCount = 0;
-  for (pr = residuals.begin(), pw = weightPix.begin() ; pr<pend; ++pr, ++pw)
-    {
-      if (*pr > cuth  || *pr < cutl ) {*pw = 0; outCount++;}
-    }
-  return outCount;
+  return nout;
 }
-						       
 
 bool Vignette::GetPSF(PixelBlock &PSFPixels, PixelBlock *PSFDerX,
 		      PixelBlock *PSFDerY) const
@@ -261,7 +251,7 @@ int Vignette::CanDo() const
 }
 
 
-void Vignette::FillAAndB(Mat &A, Vect &B, const int ToDo)
+void Vignette::FillAAndB(Mat &A, Vect &B, const int ToDo, const int & WeightType)
 {
   //DEBUG
   //  cout << " Vignette::FillAAndB " << ri->Name() << endl;
@@ -313,16 +303,28 @@ void Vignette::FillAAndB(Mat &A, Vect &B, const int ToDo)
       GetPSF(psf, &psfDx, &psfDy);
     }
   
-
-
+  double G = ri->Gain();
+  PixelBlock WeightPix = weightPix;
+  PIXEL_LOOP(weightPix, a, b){
+    double w = weightPix(a,b);
+    double M = imagePix(a,b)-residuals(a,b);
+    if(M < 0) M = 0;
+    switch(WeightType){
+    case 0: break;
+    case 1: WeightPix(a,b) *= (1.0 + (w*M*photomRatio)/G); break;
+    case 2: WeightPix(a,b) = 1.0 / ( (1.0/w) + (M*photomRatio/G) ); break;
+    default: cerr << "ERROR Unknown WeighType in Vignette::FillAAndB" << endl; abort(); break;
+    }
+  }
+  
   if (ToDo & FIT_GALAXY) 
     {
       ComputeGalaxyDerivatives(modelDer);
 
       // Gal-Gal terms
-      PIXEL_LOOP(weightPix, a, b)
+      PIXEL_LOOP(WeightPix, a, b)
 	{
-	  double w = weightPix(a,b);
+	  double w = WeightPix(a,b);
 	  if (w == 0) continue;
 	  double res = residuals(a,b);
 	  const CoeffBlock &block = modelDer(a,b);
@@ -363,9 +365,9 @@ void Vignette::FillAAndB(Mat &A, Vect &B, const int ToDo)
       // Gal-Flux terms
       if (ToDo & FIT_FLUX)
 	{
-	  PIXEL_LOOP(weightPix, a, b)
+	  PIXEL_LOOP(WeightPix, a, b)
 	  {
-	    double w = weightPix(a,b);
+	    double w = WeightPix(a,b);
 	    if (w == 0) continue;
 	    double psfVal = w*psf(a,b);
 	    const CoeffBlock &block = modelDer(a,b);
@@ -380,9 +382,9 @@ void Vignette::FillAAndB(Mat &A, Vect &B, const int ToDo)
       // Gal-sky
       if (ToDo & FIT_SKY)
 	{
-	  PIXEL_LOOP(weightPix, a, b)
+	  PIXEL_LOOP(WeightPix, a, b)
 	  {
-	    double w = weightPix(a,b);
+	    double w = WeightPix(a,b);
 	    if (w == 0) continue;
 	    const CoeffBlock &block = modelDer(a,b);
 	    PIXEL_LOOP(block, i, j)
@@ -396,9 +398,9 @@ void Vignette::FillAAndB(Mat &A, Vect &B, const int ToDo)
       // Gal-pos
       if (ToDo & FIT_POS)
 	{
-	  PIXEL_LOOP(weightPix, a, b)
+	  PIXEL_LOOP(WeightPix, a, b)
 	  {
-	    double w = weightPix(a,b);
+	    double w = WeightPix(a,b);
 	    if (w == 0) continue;
 	    double dx = w*flux*psfDx(a,b);
 	    double dy = w*flux*psfDy(a,b);
@@ -415,9 +417,9 @@ void Vignette::FillAAndB(Mat &A, Vect &B, const int ToDo)
   if (ToDo & FIT_SKY)
     {
       // Sky-Sky
-      A(skyIndex,skyIndex) += weightPix.Sum();
-      B(skyIndex) += ScalProd(weightPix,residuals);
-      //cout << "ScalProd(weightPix,residuals) weightPix residuals " << ScalProd(weightPix,residuals) << " " << weightPix << " " << residuals << endl ; 
+      A(skyIndex,skyIndex) += WeightPix.Sum();
+      B(skyIndex) += ScalProd(WeightPix,residuals);
+      //cout << "ScalProd(WeightPix,residuals) WeightPix residuals " << ScalProd(WeightPix,residuals) << " " << WeightPix << " " << residuals << endl ; 
  // B term - Sky
       // DEBUG
       if (isnan(B(skyIndex))) 
@@ -427,12 +429,12 @@ void Vignette::FillAAndB(Mat &A, Vect &B, const int ToDo)
 	}
      // Sky - Flux
       if (ToDo & FIT_FLUX)
-	A(skyIndex, fluxIndex) += ScalProd(psf,weightPix);
+	A(skyIndex, fluxIndex) += ScalProd(psf,WeightPix);
       // Sky - Pos
       if (ToDo & FIT_POS)
 	{
-	  A(skyIndex, posIndex)   += flux*ScalProd(weightPix,psfDx);
-	  A(skyIndex, posIndex+1) += flux*ScalProd(weightPix,psfDy);
+	  A(skyIndex, posIndex)   += flux*ScalProd(WeightPix,psfDx);
+	  A(skyIndex, posIndex+1) += flux*ScalProd(WeightPix,psfDy);
 	}
     } // end of FIT_SKY
 
@@ -442,10 +444,10 @@ void Vignette::FillAAndB(Mat &A, Vect &B, const int ToDo)
       // Flux- Flux terms.
       double suma  = 0;
       double sumb  = 0;
-      PIXEL_LOOP(weightPix, a, b)
+      PIXEL_LOOP(WeightPix, a, b)
       {
 	double psfVal = psf(a,b);
-	double w = weightPix(a,b);
+	double w = WeightPix(a,b);
 	suma += w*psfVal*psfVal;
 	sumb += w*psfVal*residuals(a,b);
       }
@@ -458,10 +460,10 @@ void Vignette::FillAAndB(Mat &A, Vect &B, const int ToDo)
 	  double sumx = 0;
 	  double sumy = 0;
 
-	  PIXEL_LOOP(weightPix, a, b)
+	  PIXEL_LOOP(WeightPix, a, b)
 	  {
 	    double psfVal = psf(a,b);
-	    double w = weightPix(a,b);
+	    double w = WeightPix(a,b);
 	    sumx += w*psfVal*psfDx(a,b);
 	    sumy += w*psfVal*psfDy(a,b);
 	  }
@@ -476,9 +478,9 @@ void Vignette::FillAAndB(Mat &A, Vect &B, const int ToDo)
       double sumyy  = 0;
       double sumbx  = 0;
       double sumby  = 0;
-      PIXEL_LOOP(weightPix, a, b)
+      PIXEL_LOOP(WeightPix, a, b)
       {
-	double w = weightPix(a,b);
+	double w = WeightPix(a,b);
 	double dx = flux*psfDx(a,b);
 	double dy = flux*psfDy(a,b);
 	sumxx += w*dx*dx;
@@ -541,6 +543,7 @@ bool Vignette::ReadPixels()
 
       has_saturated_pixels=(sum>0);   
       n_saturated_pixels=sum;    
+      if(has_saturated_pixels) cout << "Vignette " << Name() << " has " << sum << " saturated pixels" << endl;
     }
   else
     {

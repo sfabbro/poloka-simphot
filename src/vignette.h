@@ -71,7 +71,7 @@ class Vignette : public RefCount {
 
   void ComputeModelLimits(Frame &ModelFrame) const;
 
-  void FillAAndB(Mat &A, Vect &B, const int ToDo);
+  void FillAAndB(Mat &A, Vect &B, const int ToDo, const int & WeightType);
 
   void UpdateResiduals();
 

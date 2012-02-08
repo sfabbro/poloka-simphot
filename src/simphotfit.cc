@@ -156,6 +156,7 @@ bool SimPhotFit::OneMinimization(const int CurrentToDo, const int MaxIter,
 	  cout << " try header -k TOADMJD <fitsfile> on a sample of input images" << endl;
 	  return false;
 	}
+      cout << "SimPhotFit::OneMinimization : CurrentToDo = " << CurrentToDo << endl;
       if (!OneIteration(CurrentToDo))  return false;
       CumulateChi2(chi2, ndof, true );
       niter++;
@@ -265,7 +266,50 @@ bool SimPhotFit::OneMinimization(const int CurrentToDo, const int MaxIter,
   return true;
 }
 
-bool SimPhotFit::OneIteration(const int CurrentToDo)
+void SimPhotFit::SmoothEdges(const int & HalfKernelSize){
+  
+  if(!(toDo & FIT_GALAXY)) cerr << "WARNING in SimPhotFit::SmoothEdges : you want me to smooth the edges even though no galaxy is fitted" << endl;
+  
+  //unsmoothed area:
+  IntFrame unsmoothed((const IntFrame &) galaxyPixels);
+      
+  // because we have convolution AND resampling, we need to add 1      
+  int smoothingLength = HalfKernelSize+1;
+  cout << " Model::Solve : smoothing galaxy edges over " 
+       << smoothingLength << endl; 
+  unsmoothed.CutMargin(smoothingLength);
+  int central_index = galaxyPixels.PixelIndex(1,1);
+  double weight = A(central_index, central_index)*0.01;
+      
+  double chi2 = 0;
+  for (int j=galaxyPixels.ymin; j < galaxyPixels.ymax; ++j)
+    for (int i=galaxyPixels.xmin; i < galaxyPixels.xmax; ++i)
+      {
+	if (unsmoothed.IsInside(i,j)) continue;
+	int in = i;
+	int jn = j;
+	if (i-galaxyPixels.xmin <= smoothingLength) in  = i+1;
+	if (galaxyPixels.xmax -i <= smoothingLength) in  = i-1;
+	if (j-galaxyPixels.ymin <= smoothingLength) jn  = j+1;
+	if (galaxyPixels.ymax -j <= smoothingLength) jn  = j-1;
+	if (in == i && jn == j) abort(); // should never happen!
+
+	int nindex = galaxyPixels.PixelIndex(in,jn);
+	int index = galaxyPixels.PixelIndex(i,j);
+	    
+	A(nindex,nindex) += weight;
+	A(index,index) += weight;
+	A(index, nindex) -= weight;
+	A(nindex, index) -= weight;
+	double res = galaxyPixels(i,j)-galaxyPixels(in,jn); 
+	B(index)-=weight*res;
+	B(nindex)+=weight*res;
+	chi2 += res*res*weight;	    
+      }
+  cout << " chi2 smoothing " << chi2 << endl;;
+}
+
+bool SimPhotFit::OneIteration(const int CurrentToDo, const bool & UseForFit, const int & WeightType)
 {
   A.allocate(matSize,matSize);
   B.allocate(matSize);
@@ -279,13 +323,18 @@ bool SimPhotFit::OneIteration(const int CurrentToDo)
 	}
       int toDo = toDoMap[&v];
       //      cout << v.Name() << ": " << todo_2_string(toDo) << endl;
-      v.FillAAndB(A,B,toDoMap[&v]);
+      v.FillAAndB(A,B,toDoMap[&v],WeightType);
     }
 
-  if (!Solve(A,B,"U", (CurrentToDo & FIT_GALAXY), maxKernelSize)) return false;
-
-  // push results into the right places
-  DispatchOffsets(B);
+  if(CurrentToDo & FIT_GALAXY) SmoothEdges(maxKernelSize);
+  
+  if(UseForFit){
+    if (!Solve(A,B,"U", (CurrentToDo & FIT_GALAXY), maxKernelSize)) return false;
+    // push results into the right places
+    DispatchOffsets(B);
+  }
+  else A.Symmetrize("U");
+  
   return true;
 }
 
@@ -492,11 +541,37 @@ void SimPhotFit::DispatchOffsets(const Vect& Offsets, const double Fact,
 
 
 
-#define FLUX_WEIGHT_NAME "lightcurve.weight.dat"
-
+#define FLUX_NAIVE_WEIGHT_NAME "lightcurve_naive.weight.dat"
+#define FLUX_MODEL_WEIGHT_NAME "lightcurve_model.weight.dat"
+#define FLUX_OPTIMAL_WEIGHT_NAME "lightcurve_optimal.weight.dat"
 
 bool SimPhotFit::Write(const string &Dir, const bool WriteVignettes, const bool WriteMatrices)
 {
+
+  double GalFlux = ( (toDo & FIT_GALAXY) ? GetGalFlux() : 0 );
+
+  Mat CovNaive = A;
+
+  // calculate covariance for the fit method used by mklc
+  cout << "Calculating real covariance matrix" << endl;
+  if(!OneIteration(toDo,false,1)){
+    cerr << "ERROR OneIteration failed while adding model in weight" << endl;
+    abort();
+  }
+  Mat CovModel = CovNaive * A * CovNaive.transposed();
+  
+  // calculate the covariance of the optimal estimator
+  cout << "Calculating optimal covariance matrix" << endl;
+  if(!OneIteration(toDo,false,2)){
+    cerr << "ERROR OneIteration failed for optimal estimator" << endl;
+    abort();
+  }
+  if(A.CholeskyInvert("U")){
+    cerr << "ERROR Inverting to get optimal covariance matrix failed" << endl;
+    abort();
+  }
+  A.Symmetrize("U");
+  Mat CovOptimal = A;
 
   unsigned nflux = fluxMap.size();
   VignetteMap newFluxMap;
@@ -510,11 +585,16 @@ bool SimPhotFit::Write(const string &Dir, const bool WriteVignettes, const bool 
   lc << "@COORD_X " << posInImage.x << endl;
   lc << "@COORD_Y " << posInImage.y << endl;
   lc << "@REFERENCEIMAGE " << RefImage()->Name() << endl;
-  lc << "@WEIGHTMAT " << FLUX_WEIGHT_NAME << endl;
+  lc << "@NAIVEWEIGHTMAT " << FLUX_NAIVE_WEIGHT_NAME << endl;
+  lc << "@MODELWEIGHTMAT " << FLUX_MODEL_WEIGHT_NAME << endl;
+  lc << "@OPTIMALWEIGHTMAT " << FLUX_OPTIMAL_WEIGHT_NAME << endl;
   lc << "@PSFZPERROR 12." << endl;
+  lc << "@GAL_PSF_FLUX " << GalFlux << endl;
   lc << "# Date :"  << endl;
   lc << "# Flux :"  << endl;
-  lc << "# Fluxerr :"  << endl;
+  lc << "# FluxerrNaive :"  << endl;
+  lc << "# FluxerrModel :"  << endl;
+  lc << "# FluxerrOptimal :"  << endl;
   lc << "# ZP:"  << endl;
   lc << "# sky :" << endl;
   lc << "# esky :" << endl;
@@ -546,10 +626,12 @@ bool SimPhotFit::Write(const string &Dir, const bool WriteVignettes, const bool 
       if (fluxIndex <0 )  continue;
       double sigSky = 0;
       int skyIndex = SkyIndex(v);
-      if (skyIndex>=0) sigSky = sqrt(A(skyIndex,skyIndex));
+      if (skyIndex>=0) sigSky = sqrt(CovModel(skyIndex,skyIndex));
       lc << setw(14) << setprecision(11) << v->MJD() << ' ' 
 	 << setw(14) << setprecision(9) << v->GetFlux() << ' ' 
-	 << setw(12) << setprecision(9) << sqrt(A(fluxIndex,fluxIndex)) << ' '
+	 << setw(12) << setprecision(9) << sqrt(CovNaive(fluxIndex,fluxIndex)) << ' '
+	 << setw(12) << setprecision(9) << sqrt(CovModel(fluxIndex,fluxIndex)) << ' '
+	 << setw(12) << setprecision(9) << sqrt(CovOptimal(fluxIndex,fluxIndex)) << ' '
 	 << setw(7) << setprecision(5) << zp << ' '
 	 << setw(10) << setprecision(7) << v->GetSky() << ' '
 	 << setw(10) << setprecision(7) << sigSky << ' '
@@ -588,17 +670,17 @@ bool SimPhotFit::Write(const string &Dir, const bool WriteVignettes, const bool 
       int posIndex = PosIndex();
       if (posIndex >= 0)
 	{
-	  sigPosX = sqrt(A(posIndex,posIndex));
-	  sigPosY = sqrt(A(posIndex+1,posIndex+1));
+	  sigPosX = sqrt(CovModel(posIndex,posIndex));
+	  sigPosY = sqrt(CovModel(posIndex+1,posIndex+1));
 	}
 
       int fluxIndex = FluxIndex(v);
       if (fluxIndex < 0) continue;
-      double sigFlux=sqrt(A(fluxIndex,fluxIndex));
+      double sigFlux=sqrt(CovModel(fluxIndex,fluxIndex));
 
       double sigSky = 0;
       int skyIndex = SkyIndex(v);
-      if (skyIndex >= 0) sigSky = sqrt(A(skyIndex,skyIndex));
+      if (skyIndex >= 0) sigSky = sqrt(CovModel(skyIndex,skyIndex));
 
       Point fittedPos( ObjectPosInImage());
 
@@ -617,18 +699,26 @@ bool SimPhotFit::Write(const string &Dir, const bool WriteVignettes, const bool 
 
   lstream.close();
 
-  //flux covariance matrix
+  //flux covariance matrices
   Mat fluxWeight(nflux,nflux);
-  // A is a covariance, so fluxWeight is also a covariance 
-  A.ExtractSubMat(indexMapping, nflux, fluxWeight);
-  fluxWeight.writeFits("flux_pmat_sn.fits");
-
-
-  // convert it to weight
+  
+  CovNaive.ExtractSubMat(indexMapping, nflux, fluxWeight);
+  fluxWeight.writeFits("flux_pmat_sn_naive.fits");
   fluxWeight.CholeskyInvert("U");
   fluxWeight.Symmetrize("U");
+  fluxWeight.writeASCII(Dir+FLUX_NAIVE_WEIGHT_NAME);
+
+  CovModel.ExtractSubMat(indexMapping, nflux, fluxWeight);
+  fluxWeight.writeFits("flux_pmat_sn_model.fits");
+  fluxWeight.CholeskyInvert("U");
+  fluxWeight.Symmetrize("U");
+  fluxWeight.writeASCII(Dir+FLUX_MODEL_WEIGHT_NAME);
   
-  fluxWeight.writeASCII(Dir+FLUX_WEIGHT_NAME);
+  CovOptimal.ExtractSubMat(indexMapping, nflux, fluxWeight);
+  fluxWeight.writeFits("flux_pmat_sn_optimal.fits");
+  fluxWeight.CholeskyInvert("U");
+  fluxWeight.Symmetrize("U");
+  fluxWeight.writeASCII(Dir+FLUX_OPTIMAL_WEIGHT_NAME);
 
   delete [] indexMapping;
 
@@ -661,11 +751,11 @@ bool SimPhotFit::Write(const string &Dir, const bool WriteVignettes, const bool 
 
       double sigFlux = 0;
       int fluxIndex = FluxIndex(v);
-      if (fluxIndex >= 0)  sigFlux=sqrt(A(fluxIndex,fluxIndex));
+      if (fluxIndex >= 0)  sigFlux=sqrt(CovModel(fluxIndex,fluxIndex));
 
       double sigSky = 0;
       int skyIndex = SkyIndex(v);
-      if (skyIndex >= 0) sigSky = sqrt(A(skyIndex,skyIndex));
+      if (skyIndex >= 0) sigSky = sqrt(CovModel(skyIndex,skyIndex));
 
       int indexLC = -1;
       if (newFluxMap.find(v) != newFluxMap.end()) 
@@ -688,8 +778,6 @@ bool SimPhotFit::Write(const string &Dir, const bool WriteVignettes, const bool 
 	 << endl;
     }
   vi.close();
-
-
 
   //galaxy vignette and eventually residual vignettes
   if (toDo & FIT_GALAXY)
@@ -718,7 +806,7 @@ bool SimPhotFit::Write(const string &Dir, const bool WriteVignettes, const bool 
     {
 
       // get covariance matrix
-      A.writeFits(Dir+"pmat_sn_bkup.fits");
+      CovModel.writeFits(Dir+"pmat_sn_bkup.fits");
 
       // create and get vector of flux
       int i=0;
@@ -759,6 +847,32 @@ bool SimPhotFit::Write(const string &Dir, const bool WriteVignettes, const bool 
   return true;
 }
 
+double SimPhotFit::GetGalFlux(){
+  cout << "In SimPhotFit::GetGalFlux : Computing galaxyWeight" << endl;
+  PixelBlock galaxyWeight(galaxyPixels);
+  PIXEL_LOOP(galaxyWeight,i,j)
+    {
+      int pixelIndex = galaxyPixels.PixelIndex(i,j);
+      galaxyWeight(i,j) = 1./A(pixelIndex,pixelIndex);
+    }
+
+  cout << "In SimPhotFit::GetGalFlux : Computing galPSFflux" << endl;
+  double F = 0.0;
+  double tol = 0.0001;
+  PixelBlock PSF(galaxyPixels);
+  RefPSFPixels(PSF);
+  PSF.WriteFits("refPSF.fits");
+  double PSFsum2;
+  PIXEL_LOOP(galaxyPixels,i,j){
+    if(galaxyWeight(i,j) > tol){
+      double PSFval = PSF(i,j);
+      PSFsum2 += PSFval * PSFval;
+      F += galaxyPixels(i,j) * PSFval;
+    }
+  }
+  F /= PSFsum2;
+  return F;
+}
 
 void SimPhotFit::WriteTupleHeader(ostream &Stream, const int NStars) const
 {

@@ -66,14 +66,15 @@ class SimPhotFit : public Model
   void CumulateChi2(double &Chi2, int &NDof, const bool Print=false) const;
   void AssignIndicesAndToDo(const int CurrentToDo);
   void UpdateResiduals();
-  bool OneIteration(const int CurrentToDo);
+  void SmoothEdges(const int & HalfKernelSize);
+  bool OneIteration(const int CurrentToDo, const bool & UseForFit = true, const int & WeightType = 0);
   void DispatchOffsets(const Vect& Offsets, const double Fact=1., 
 		       const bool Verbose=true);
 
   //! finds the matrix that will merge the image fluxes into epoch fluxes.
   Mat FillNightMat() const;
 
-
+  double GetGalFlux();
   
   // what concerns the handling of fitted parameters
   // cannot be "const Vignette*" because we use these map to update sky and flux

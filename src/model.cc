@@ -10,6 +10,7 @@ static IntPoint nearest_integer_pos(const Point &P)
 
 
 #include "matvect.h"
+#include "vutils.h"
 #include "imagematch.h"
 #include "gtransfo.h"
 #include "psfstar.h"
@@ -154,12 +155,42 @@ struct PhotomRatioServer : public map<string,double>
 					      (const BaseStarList &)l2, 
 					      Transfo2Ref, Cut);
     FluxPairList fpl;
+    double mean;
+    double sigma;
+    int count = 0;
+    int entries = matches->size();
+    double ratios[entries];
+    double sigmas[entries];
     for (StarMatchCIterator i = matches->begin(); i != matches->end(); ++i)
       {
 	const PSFStar& s1 = (const PSFStar &)*(i->s1);
 	const PSFStar& s2 = (const PSFStar &)*(i->s2);
+	ratios[count] = s1.flux/s2.flux;
+	sigmas[count++] = (s1.flux/s2.flux) * sqrt( (s1.EFlux()/s1.flux)*(s1.EFlux()/s1.flux) + (s2.EFlux()/s2.flux)*(s2.EFlux()/s2.flux) );
 	fpl.push_back(FluxPair(s1.flux, s1.EFlux(), s2.flux, s2.EFlux()));
       }
+    
+    mean = clipmean(ratios,entries,sigma,5,10);
+    cout << "PhotomRatioServer::FindPhotomRatio for image " << Current->Name() <<  " : very naive estimate of mean sigma = " << mean << ' ' << sigma << endl;
+    double sumw = 0;
+    double avg = 0;
+    double mysig = 0;
+    int N = 0;
+    for (int i = 0; i < entries; i ++)
+      {
+	if ( (ratios[i] - mean) < 5*sigma )
+	  {
+	    double w = 1/(sigmas[i]*sigmas[i]);
+	    avg += w*ratios[i];
+	    mysig += w*ratios[i]*ratios[i];
+	    sumw += w;
+	    ++N;
+	  }
+      }
+    avg = avg/sumw;
+    mysig = sqrt(mysig/sumw - avg*avg);
+    cout << "PhotomRatioServer::FindPhotomRatio for image " << Current->Name() <<  " : less naive estimate of avg mysig mysig/sqrt(N) sqrt(1/sumw) = " << avg << ' ' << mysig << ' ' << mysig/sqrt(N) << ' ' << sqrt(1/sumw) << endl;
+    
     delete matches;
     double sig;
     //TODO : put the sig cut into datacards
@@ -319,95 +350,8 @@ bool Model::Solve(Mat &A, Vect &B, const string &U_or_L,
 	  return false;
 	}
     }
-
-
-#define SMOOTH_EDGES
-#ifdef SMOOTH_EDGES
-  if (FittingGalaxy)
-    {
-      //unsmoothed area:
-      IntFrame unsmoothed((const IntFrame &) galaxyPixels);
-
-      // because we have convolution AND resampling, we need to add 1      
-      int smoothingLength = HalfKernelSize+1;
-      cout << " Model::Solve : smoothing galaxy edges over " 
-	   << smoothingLength << endl; 
-      unsmoothed.CutMargin(smoothingLength);
-      int central_index = galaxyPixels.PixelIndex(1,1);
-      double weight = A(central_index, central_index)*0.01;
-      
-      double chi2 = 0;
-      for (int j=galaxyPixels.ymin; j < galaxyPixels.ymax; ++j)
-	for (int i=galaxyPixels.xmin; i < galaxyPixels.xmax; ++i)
-	  {
-	    if (unsmoothed.IsInside(i,j)) continue;
-	    int in = i;
-	    int jn = j;
-	    if (i-galaxyPixels.xmin <= smoothingLength) in  = i+1;
-	    if (galaxyPixels.xmax -i <= smoothingLength) in  = i-1;
-	    if (j-galaxyPixels.ymin <= smoothingLength) jn  = j+1;
-	    if (galaxyPixels.ymax -j <= smoothingLength) jn  = j-1;
-	    if (in == i && jn == j) abort(); // should never happen!
-
-	    int nindex = galaxyPixels.PixelIndex(in,jn);
-	    int index = galaxyPixels.PixelIndex(i,j);
-	    
-	    A(nindex,nindex) += weight;
-	    A(index,index) += weight;
-	    A(index, nindex) -= weight;
-	    A(nindex, index) -= weight;
-	    double res = galaxyPixels(i,j)-galaxyPixels(in,jn); 
-	    B(index)-=weight*res;
-	    B(nindex)+=weight*res;
-	    chi2 += res*res*weight;	    
-	  }
-      cout << " chi2 smoothing " << chi2 << endl;;
-    }// end if (Fitting galaxy)
+  
   return (cholesky_solve(A,B,U_or_L.c_str()) == 0);
-#endif
-  //#define CUT_EDGES
-#ifdef CUT_EDGES
-  this is bugged: it also removes fluxes, sky, position!
-
-  IntFrame unsmoothed((const IntFrame &) galaxyPixels);
-  // because we have convolution AND resampling, we may need to add 1
-  // Let's try to add 1!
-  int smoothingLength = HalfKernelSize+1;
-  unsmoothed.CutMargin(smoothingLength); 
-  PixelBlock center(unsmoothed);
-  int nprime = center.Ntot();
-  Mat Ap(nprime,nprime);
-  Vect Bp(nprime);
-  for (int j1=center.ymin; j1 < center.ymax; ++j1)
-    for (int i1=center.xmin; i1 < center.xmax; ++i1)
-      {
-	int k1 = center.PixelIndex(i1,j1);
-	int l1 = galaxyPixels.PixelIndex(i1,j1);
-	for (int j2=center.ymin; j2 < center.ymax; ++j2)
-	  for (int i2=center.xmin; i2 < center.xmax; ++i2)
-	    {
-	      int k2 = center.PixelIndex(i2,j2);
-	      int l2 = galaxyPixels.PixelIndex(i2,j2);
-	      Ap(k1,k2) = A(l1,l2);
-	    }
-	Bp(k1) = B(l1);
-      }
-  Ap.writeFits("ap.fits");
-  bool rc =(cholesky_solve(Ap,Bp,U_or_L.c_str()) == 0);
-  if (rc)
-  for (int j1=center.ymin; j1 < center.ymax; ++j1)
-    for (int i1=center.xmin; i1 < center.xmax; ++i1)
-      {
-	int k1 = center.PixelIndex(i1,j1);
-	int l1 = galaxyPixels.PixelIndex(i1,j1);
-	B(l1) = Bp(k1);
-      }
-  return rc;
-
-#endif
-#if (!defined(CUT_EDGES) && !defined(SMOOTH_EDGES))
-  return (cholesky_solve(A,B,U_or_L.c_str()) == 0);
-#endif
 }
 
 
