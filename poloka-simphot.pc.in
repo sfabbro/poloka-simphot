@@ -1,0 +1,10 @@
+prefix=@prefix@
+libdir=@libdir@
+includedir=@includedir@
+
+Name: poloka-simphot
+Description: 
+Version: @PACKAGE_VERSION@
+Libs: -L${libdir}
+Requires: poloka-core poloka-psf
+Cflags: -I${includedir}
