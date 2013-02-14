@@ -1,11 +1,11 @@
-poloka-@MODULE@ - @MODULE@fielding  module for the poloka suite
+poloka-simphot - simphot module for the poloka suite
 =======================================================
 
 Installation Instructions
 =========================
 
-poloka-@MODULE@ follows the standard GNU installation procedure. To
-compile poloka-sub you will a few packages described below. After
+poloka-simphot follows the standard GNU installation procedure. To
+compile poloka-simphot you will a few packages described below. After
 unpacking the distribution you can install poloka-core using standard
 autotools:
 
@@ -14,11 +14,12 @@ autotools:
 Requirements
 ============
 
-poloka-@MODULE@ needs a few standard packages and compilers:
+poloka-simphot needs a few standard packages and compilers:
 
 * A C/C++ compiler (tested with gcc/g++ up to version 4.7)
 * The pkg-config tool
 * The poloka-core library
+* The poloka-psf library
 
 All include directories, linking directories, compiler directives and other
 flags can be set. Running ./configure --help will show you which ones

@@ -5,6 +5,8 @@
 #include <string>
 
 #include <poloka/basestar.h>
+#include <poloka/starlist.h>
+
 
 using namespace std;
 
@@ -28,8 +30,6 @@ class ObjectToFit : public BaseStar
 
 };
 
-
-#include <starlist.h>
 
 typedef StarList<ObjectToFit> ObjectToFitList;
 typedef ObjectToFitList::const_iterator ObjectToFitCIterator;

@@ -1,16 +1,6 @@
-#include <sstream>
+#include "calibratedstar.h"
 
-#include <poloka/imageutils.h>
-#include <poloka/gtransfo.h>
-#include <poloka/frame.h>
-#include <poloka/wcsutils.h>
-#include <poloka/fitsimage.h>
-#include <poloka/polokaexception.h>
-#include <poloka/fastfinder.h>
-#include <poloka/apersestar.h>
-#include <poloka/dicstar.h>
-
-#include <poloka/calibratedstar.h>
+#include "dicstar.h"
 
 
 /* tags of the catalogs :
@@ -78,11 +68,24 @@ CalibratedStar::CalibratedStar(const DicStar &D) : BaseStar(D)
   neighborNsigma = -1 ;
 }
 
+
+#include "imageutils.h"
 static Frame FrameApplyTransfo(const Frame& InputFrame, const Gtransfo &T, 
 			       const WhichTransformed W)
 {
   return ApplyTransfo(InputFrame, T, W);
 }
+
+#include "gtransfo.h"
+#include "frame.h"
+#include "wcsutils.h"
+#include "fitsimage.h"
+
+#include "polokaexception.h"
+#include "sstream"
+
+#include "fastfinder.h"
+#include "apersestar.h"
 
 static CalibratedStar * Checked_CalibratedStar(FastFinder const & finder, const Point & pix, const DicStar & ds_modele, double reference_seeing )
 {

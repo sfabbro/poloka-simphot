@@ -1,26 +1,20 @@
+#include "model.h"
+#include "lightcurvefile.h"
+#include "pmstar.h"
+
 #include <cmath> // for floor
-
-#include <poloka/photoratio.h> // for TLSPhotomRatio et al
-#include <poloka/reducedutils.h>
-#include <poloka/sestar.h>
-#include <poloka/matvect.h>
-#include <poloka/vutils.h>
-#include <poloka/gtransfo.h>
-#include <poloka/psfstar.h>
-#include <poloka/listmatch.h> // for ListMatchCollect
-#include <poloka/fitsimage.h>
-#include <poloka/imagepsf.h>
-
-#include <poloka/resampler.h>
-#include <poloka/model.h>
-#include <poloka/lightcurvefile.h>
-#include <poloka/pmstar.h>
-
 static IntPoint nearest_integer_pos(const Point &P)
 {
   return IntPoint(int(floor(P.x+0.5)), int(floor(P.y+0.5)));
 } 
 
+
+#include "matvect.h"
+#include "imagematch.h"
+#include "gtransfo.h"
+#include "psfstar.h"
+#include "listmatch.h" // for ListMatchCollect
+#include "fitsimage.h"
 
 #ifdef STORAGE 
 
@@ -138,6 +132,8 @@ class GtransfoServer {
 
 };
 
+#include "photoratio.h" // for TLSPhotomRatio et al
+
 
 struct PhotomRatioServer : public map<string,double>
 {
@@ -196,6 +192,9 @@ Model::Model(const LightCurveFile &LCF, const Point &ObjectPos,
 }
 
 
+#include "sestar.h"
+
+
 Point Model::ProperMotionOffset(const double &MJDate) const
 {
   if (pmStar)
@@ -210,6 +209,8 @@ static std::string transfo_file_name(const ReducedImage *Ref, const ReducedImage
 {
   return Cur->Dir()+"/transfoTo"+Ref->Name()+".dat";
 }
+
+#include "reducedutils.h"
 
 bool Model::FindTransfos(const RImageRef Current, 
 			 GtransfoRef &Transfo2Ref,
@@ -302,9 +303,101 @@ bool Model::Solve(Mat &A, Vect &B, const string &U_or_L,
 	  return false;
 	}
     }
+
+
+#define SMOOTH_EDGES
+#ifdef SMOOTH_EDGES
+  if (FittingGalaxy)
+    {
+      //unsmoothed area:
+      IntFrame unsmoothed((const IntFrame &) galaxyPixels);
+
+      // because we have convolution AND resampling, we need to add 1      
+      int smoothingLength = HalfKernelSize+1;
+      cout << " Model::Solve : smoothing galaxy edges over " 
+	   << smoothingLength << endl; 
+      unsmoothed.CutMargin(smoothingLength);
+      int central_index = galaxyPixels.PixelIndex(1,1);
+      double weight = A(central_index, central_index)*0.01;
+      
+      double chi2 = 0;
+      for (int j=galaxyPixels.ymin; j < galaxyPixels.ymax; ++j)
+	for (int i=galaxyPixels.xmin; i < galaxyPixels.xmax; ++i)
+	  {
+	    if (unsmoothed.IsInside(i,j)) continue;
+	    int in = i;
+	    int jn = j;
+	    if (i-galaxyPixels.xmin <= smoothingLength) in  = i+1;
+	    if (galaxyPixels.xmax -i <= smoothingLength) in  = i-1;
+	    if (j-galaxyPixels.ymin <= smoothingLength) jn  = j+1;
+	    if (galaxyPixels.ymax -j <= smoothingLength) jn  = j-1;
+	    if (in == i && jn == j) abort(); // should never happen!
+
+	    int nindex = galaxyPixels.PixelIndex(in,jn);
+	    int index = galaxyPixels.PixelIndex(i,j);
+	    
+	    A(nindex,nindex) += weight;
+	    A(index,index) += weight;
+	    A(index, nindex) -= weight;
+	    A(nindex, index) -= weight;
+	    double res = galaxyPixels(i,j)-galaxyPixels(in,jn); 
+	    B(index)-=weight*res;
+	    B(nindex)+=weight*res;
+	    chi2 += res*res*weight;	    
+	  }
+      cout << " chi2 smoothing " << chi2 << endl;;
+    }// end if (Fitting galaxy)
   return (cholesky_solve(A,B,U_or_L.c_str()) == 0);
+#endif
+  //#define CUT_EDGES
+#ifdef CUT_EDGES
+  this is bugged: it also removes fluxes, sky, position!
+
+  IntFrame unsmoothed((const IntFrame &) galaxyPixels);
+  // because we have convolution AND resampling, we may need to add 1
+  // Let's try to add 1!
+  int smoothingLength = HalfKernelSize+1;
+  unsmoothed.CutMargin(smoothingLength); 
+  PixelBlock center(unsmoothed);
+  int nprime = center.Ntot();
+  Mat Ap(nprime,nprime);
+  Vect Bp(nprime);
+  for (int j1=center.ymin; j1 < center.ymax; ++j1)
+    for (int i1=center.xmin; i1 < center.xmax; ++i1)
+      {
+	int k1 = center.PixelIndex(i1,j1);
+	int l1 = galaxyPixels.PixelIndex(i1,j1);
+	for (int j2=center.ymin; j2 < center.ymax; ++j2)
+	  for (int i2=center.xmin; i2 < center.xmax; ++i2)
+	    {
+	      int k2 = center.PixelIndex(i2,j2);
+	      int l2 = galaxyPixels.PixelIndex(i2,j2);
+	      Ap(k1,k2) = A(l1,l2);
+	    }
+	Bp(k1) = B(l1);
+      }
+  Ap.writeFits("ap.fits");
+  bool rc =(cholesky_solve(Ap,Bp,U_or_L.c_str()) == 0);
+  if (rc)
+  for (int j1=center.ymin; j1 < center.ymax; ++j1)
+    for (int i1=center.xmin; i1 < center.xmax; ++i1)
+      {
+	int k1 = center.PixelIndex(i1,j1);
+	int l1 = galaxyPixels.PixelIndex(i1,j1);
+	B(l1) = Bp(k1);
+      }
+  return rc;
+
+#endif
+#if (!defined(CUT_EDGES) && !defined(SMOOTH_EDGES))
+  return (cholesky_solve(A,B,U_or_L.c_str()) == 0);
+#endif
 }
 
+
+
+#include "imagepsf.h"
+#include "resampler.h"
 
 
 static double ShiftedScalarProduct(const PixelBlock &Psf1,
